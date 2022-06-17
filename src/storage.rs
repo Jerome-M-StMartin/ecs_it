@@ -7,14 +7,13 @@ use super::component::Component;
 
 type Entity = u32;
 
-pub trait Storage<T> {
-    fn query(&self, e: Entity) -> &Option<T>;
-    fn mut_query(&mut self, e: Entity) -> &mut Option<T>;
-}
-
 pub(crate) struct VecStorage<T: Component>(Vec<Option<T>>);
 
-impl<T> Storage<T> for VecStorage<T> where T: Component {
+impl<T> VecStorage<T> where T: Component {
+    fn new() -> Self {
+        VecStorage(Vec::new())
+    }
+
     fn query(&self, e: Entity) -> &Option<T> {
         &self[e as usize]
     }

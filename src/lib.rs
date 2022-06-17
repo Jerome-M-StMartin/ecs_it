@@ -5,11 +5,21 @@
 //      for use in terminal-emulated roguelikes.
 //      Minimal probably means no bitmasks, but DOES include thread-safe access.
 
+use std::{
+    sync::Arc,
+    cell::UnsafeCell,
+    any::Any,
+};
+
 mod accessor;
-pub mod component;
-pub mod resource;
-pub(crate) mod storage;
+//pub mod component;
+//pub mod resource;
+//pub(crate) mod storage;
 mod world;
+
+//Inner Vec of Storage type must be initialized to be the # of components,
+//or the max # of components I guess would be fine, which is 64, currently.
+pub(crate) type Storage = Arc<UnsafeCell<Vec<Option<Box<dyn Any>>>>>;
 
 #[cfg(test)]
 mod tests {
