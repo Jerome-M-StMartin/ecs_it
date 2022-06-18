@@ -12,14 +12,15 @@ use std::{
 };
 
 mod accessor;
-//pub mod component;
-//pub mod resource;
-//pub(crate) mod storage;
 mod world;
 
-//Inner Vec of Storage type must be initialized to be the # of components,
-//or the max # of components I guess would be fine, which is 64, currently.
+use world::*;
+use accessor::*;
+
+pub(crate) const MAX_COMPONENTS: usize = 64;
+
 pub(crate) type Storage = Arc<UnsafeCell<Vec<Option<Box<dyn Any>>>>>;
+pub(crate) type Entity = usize;
 
 #[cfg(test)]
 mod tests {

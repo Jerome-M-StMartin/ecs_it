@@ -7,7 +7,7 @@ use std::{
     cell::UnsafeCell,
 };
 
-use super::Storage;
+use super::Storage; //Arc<UnsafeCell<Vec<Option<Box<dyn Any>>>>>
 
 ///Abstraction Sequence:
 ///AccessGuard structs contain Accessor structs which contain AccessorState structs.
@@ -50,7 +50,7 @@ struct AccessorState {
 #[derive(Debug)]
 pub struct AccessGuard {
     accessor: Arc<Accessor>,
-    val: Arc<UnsafeCell<Vec<Option<Box<dyn Any>>>>>,
+    val: Storage, //Arc<UnsafeCell<Vec<Option<Box<dyn Any>>>>>
 }
 
 impl AccessGuard {
@@ -63,7 +63,7 @@ impl AccessGuard {
         }
     }
 
-    fn val<T: 'static>(&self) -> &Vec<Option<Box<dyn Any>>> {
+    pub (crate) fn val<T: 'static>(&self) -> &Vec<Option<Box<dyn Any>>> {
         const READ_ERR_MSG: &str = "StorageAccessGuard mutex poisoned before read.";
 
         assert_eq!(self.accessor.type_id, TypeId::of::<T>());
@@ -88,7 +88,7 @@ impl AccessGuard {
         }
     }
 
-    fn val_mut<T: 'static>(&self) -> &mut Vec<Option<Box<dyn Any>>> {
+    pub(crate) fn val_mut<T: 'static>(&self) -> &mut Vec<Option<Box<dyn Any>>> {
         const WRITE_ERR_MSG: &str = "StorageAccessGuard mutex poisoned before write.";
 
         assert_eq!(self.accessor.type_id, TypeId::of::<T>());
@@ -113,6 +113,17 @@ impl AccessGuard {
     }
 }
 
+
+///This implementation should, assuming my logic is sound and correctly implemented,
+///eliminate the possibility of starvation for both readers and writers. It achieves
+///this through implementing a "flip-flop" functionality, where each dropped writer
+///wakes all readers, and no further readers are awoken until these readers drop.
+///Once this pool of readers drop, ONE writer is awoken, after which the next pool
+///of readers is awoken. So on and so forth. This is certainly not the most
+///performant way, but it is safe from starvation.
+///
+///NOTE: This implementation does NOT guarantee that all readers will read the
+///result of every write.
 impl Drop for AccessGuard {
     fn drop(&mut self) {
 
@@ -124,15 +135,15 @@ impl Drop for AccessGuard {
 
         match (access_state.write_allowed, access_state.read_allowed) {
             (false, false) => {
-                //This AccessGuard was giving exclusive Write access,
-                //so it is now safe to allow any type of access, but
-                //a writer should probably be notified first to avoid
-                //writer starvation.
+                //This AccessGuard was giving exclusive Write access, so it is
+                //now safe to allow any type of access; but in order to
+                //implement a "flip-flop" style behavior, all readers should
+                //be notified at this time.
                 access_state.write_allowed = true;
                 access_state.read_allowed = true;
                 
-                //Notify a writer, if one exists.
-                self.accessor.writer_cvar.notify_one();
+
+                self.accessor.reader_cvar.notify_all();
             },
 
             (false, true) => {
@@ -141,20 +152,31 @@ impl Drop for AccessGuard {
                 access_state.readers -= 1;
 
                 if access_state.readers == 0 {
-                    //There are no current readers, so write access is allowed again.
+                    //There are no current readers, so write access is allowed
+                    //again, and to implement "flop-flop" style behavior,
+                    //only a writer should be notified at this time.
                     access_state.write_allowed = true;
-
-                    //To avoid writer starvation, notify a writer first whenever write access
-                    //is available, which is now, when no current readers exist.
                     self.accessor.writer_cvar.notify_one(); 
 
-                } else {
-                    //One or more threads currently have read access.
-
-                    //Notify all the readers to hopefully read in parallel, assuming the duration of
-                    //their read access is significantly & sufficiently longer than the time required
-                    //to get through all the control structures (Mutexes, etc) to acquire read access.
-                    self.accessor.reader_cvar.notify_all();
+                    //Note: read_allowed is not and SHOULD NOT BE set to false
+                    //here, because it is possible to reach 0 readers before
+                    //the entire pool of notified readers have had a chance to
+                    //read. By leaving read_allowed set to true, it gives these
+                    //"late" readers a chance to race for the lock with the
+                    //writer that was just notified.
+                    //
+                    //Therefor, this implementation does NOT guarantee that all
+                    //readers will read the result of every write, because it's
+                    //possible for the notified writer to win the race for the
+                    //lock, but only in the case where there are remaining awake
+                    //readers when the reader count is set to 0.
+                    //
+                    //Furthermor, and most importantly, setting read_allowed to
+                    //false at this point introduces the possibility of an
+                    //erronious reader lockout where there are no readers nor
+                    //writers yet read_allowed is set to false. This would
+                    //self-correct once a writer drops, but until that point
+                    //behaviour would be incorrect.
                 }
             },
 
