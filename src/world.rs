@@ -17,11 +17,23 @@ use super::{
 
 pub struct World { //Arc<World>
     accessors: Mutex<HashMap<TypeId, Arc<Accessor>>>,
-    storage_indices: Mutex<HashMap<TypeId, usize>>, //Values are indices of 'storages' vec.
+    storage_idxs: Mutex<HashMap<TypeId, usize>>, //Values are indices of 'storages' vec.
     storages: UnsafeCell<[Option<Storage>; MAX_COMPONENTS]>,
 }
 
 impl World {
+
+    pub fn new() -> Self {
+
+        const NONE: Option<Storage> = None;
+        let storage_array: [Option<Storage>; MAX_COMPONENTS] = [NONE; MAX_COMPONENTS];
+
+        World {
+            accessors: Mutex::new(HashMap::new()),
+            storage_idxs: Mutex::new(HashMap::new()),
+            storages: UnsafeCell::new(storage_array),
+        }
+    }
     
     ///Adds a component of type T, which must be Any, to the passed-in entity.
     ///The component's storage is lazily initialized herein, so this can be
@@ -39,11 +51,11 @@ impl World {
         let entity_slot: &mut Option<Box<dyn Any>> = &mut storage[ent];
         
         //To avoid unneccesary memory allocations, we re-use the box in this
-        //entity_slot if it already exists. Else we gotta put one there.
+        //entity_slot if it already exists. Else we allocate a new box.
         if entity_slot.is_some() {
             let mut box_to_reuse: Box<dyn Any> = entity_slot.take().unwrap();
             let old_comp: &mut T = &mut *box_to_reuse.downcast_mut::<T>().unwrap();
-            let _: T = std::mem::replace(old_comp, comp);
+            let _: T = std::mem::replace(old_comp, comp); //old_comp is discarded
             let _: &mut Box<dyn Any + 'static> = entity_slot.insert(box_to_reuse);
         } else {
             let _ = entity_slot.insert(Box::new(comp));
@@ -82,8 +94,8 @@ impl World {
             .expect("Mutex found poisoned during world.req_access()");
 
         //Acquire Lock
-        let mut storage_indices = self
-            .storage_indices
+        let mut storage_idxs = self
+            .storage_idxs
             .lock()
             .expect("Mutex found poisoned during world.req_access()");
     
@@ -93,8 +105,8 @@ impl World {
             .clone();    
 
         //Create index/key if this is a new storage type.
-        let num_components = storage_indices.len();
-        let storage_idx = storage_indices
+        let num_components = storage_idxs.len();
+        let storage_idx = storage_idxs
             .entry(type_id)
             .or_insert(num_components);
 
@@ -134,8 +146,8 @@ impl World {
             .expect("Mutex found poisoned during world.req_multi_access()");
 
         //Acquire Lock
-        let mut storage_indices = self
-            .storage_indices
+        let mut storage_idxs = self
+            .storage_idxs
             .lock()
             .expect("Mutex found poisoned during world.req_multi_access()");
 
@@ -148,8 +160,8 @@ impl World {
                 .clone();
 
             //Create index/key if this is a new storage type. Get key either way.
-            let num_components = storage_indices.len();
-            let storage_idx = storage_indices
+            let num_components = storage_idxs.len();
+            let storage_idx = storage_idxs
                 .entry(type_id)
                 .or_insert(num_components);
 

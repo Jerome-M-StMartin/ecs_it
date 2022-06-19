@@ -24,9 +24,16 @@ pub(crate) type Entity = usize;
 
 #[cfg(test)]
 mod tests {
+    
+    use super::*;
+
+    struct TestComponent {
+        val: usize,
+    }
+
     #[test]
-    fn it_works() {
-        let result = 2 + 2;
-        assert_eq!(result, 4);
+    fn add_rm_component() {
+        let w = World::new();
+        w.add_component(0, TestComponent { val: 42, });
     }
 }
