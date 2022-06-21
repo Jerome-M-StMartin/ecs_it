@@ -13,7 +13,7 @@ use std::{
 
 mod accessor;
 mod world;
-mod starvation_free_rwlock;
+mod entity;
 
 use world::*;
 use accessor::*;

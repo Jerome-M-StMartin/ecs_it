@@ -13,9 +13,11 @@ use super::{
     Storage, //Arc<UnsafeCell<Vec<Option<Box<dyn Any>>>>>
     Entity, //usize
     MAX_COMPONENTS,
+    entity::{Entities, EntityBuilder},
 };
 
 pub struct World { //Arc<World>
+    pub(crate) entities: Mutex<Entities>,
     accessors: Mutex<HashMap<TypeId, Arc<Accessor>>>,
     storage_idxs: Mutex<HashMap<TypeId, usize>>, //Values are indices of 'storages' vec.
     storages: UnsafeCell<[Option<Storage>; MAX_COMPONENTS]>,
@@ -29,10 +31,29 @@ impl World {
         let storage_array: [Option<Storage>; MAX_COMPONENTS] = [NONE; MAX_COMPONENTS];
 
         World {
+            entities: Mutex::new(Entities::new()),
             accessors: Mutex::new(HashMap::new()),
             storage_idxs: Mutex::new(HashMap::new()),
             storages: UnsafeCell::new(storage_array),
         }
+    }
+
+    pub fn build_entity() -> EntityBuilder {
+        EntityBuilder::new()
+    }
+
+    ///Used internally by the Entity Builder Pattern, called when build() is called.
+    pub(crate) fn init_entity(&self) -> Entity {
+        let id = self
+            .entities
+            .lock()
+            .expect("Entities mtx poisoned.")
+            .new_entity_id();
+
+        //TODO
+        //Increase the length of all Storage vectors in ecs.storages
+        
+        id
     }
     
     ///Adds a component of type T, which must be Any, to the passed-in entity.
