@@ -4,10 +4,9 @@
 use std::{
     any::{Any, TypeId},
     sync::{Arc, Condvar, Mutex},
-    cell::UnsafeCell,
 };
 
-use super::Storage; //Arc<UnsafeCell<Vec<Option<Box<dyn Any>>>>>
+use super::storage::Storage; //Arc<UnsafeCell<Vec<Option<Box<dyn Any>>>>>
 
 ///Abstraction Sequence:
 ///AccessGuard structs contain Accessor structs which contain AccessorState structs.
@@ -15,10 +14,10 @@ use super::Storage; //Arc<UnsafeCell<Vec<Option<Box<dyn Any>>>>>
 ///Used internally to guarantee safe concurrent access to Storages and Resources.
 #[derive(Debug)]
 pub struct Accessor {
-    type_id: TypeId,
-    mtx: Mutex<AccessorState>,
-    reader_cvar: Condvar,
-    writer_cvar: Condvar,
+    pub(crate) type_id: TypeId,
+    pub(crate) mtx: Mutex<AccessorState>,
+    pub(crate) reader_cvar: Condvar,
+    pub(crate) writer_cvar: Condvar,
 }
 
 impl Accessor {
@@ -39,7 +38,7 @@ impl Accessor {
 
 ///Internal to Accessor structs.
 #[derive(Debug)]
-struct AccessorState {
+pub(crate) struct AccessorState {
     pub readers: u16, // num of currently reading readers, NOT waiting/slept readers
     pub read_allowed: bool,
     pub write_allowed: bool,
@@ -52,12 +51,12 @@ struct AccessorState {
 #[derive(Debug)]
 pub struct AccessGuard {
     accessor: Arc<Accessor>,
-    val: Storage, //Arc<UnsafeCell<Vec<Option<Box<dyn Any>>>>>
+    val: Arc<Storage>,
 }
 
 impl AccessGuard {
     pub(super) fn new(accessor: Arc<Accessor>,
-                      val: Storage) -> Self {
+                      val: Arc<Storage>) -> Self {
 
         AccessGuard {
             accessor,

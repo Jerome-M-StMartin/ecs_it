@@ -4,31 +4,31 @@
 use std::{
     collections::HashMap,
     any::{Any, TypeId}, //TypeId::of<T>() -> TypeId;
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, MutexGuard},
     cell::UnsafeCell,
 };
 
 use super::{
-    accessor::{Accessor, AccessGuard},
-    Storage, //Arc<UnsafeCell<Vec<Option<Box<dyn Any>>>>>
+    accessor::{Accessor, AccessGuard, AccessorState},
+    storage::Storage,
     Entity, //usize
     MAX_COMPONENTS,
-    entity::{Entities, EntityBuilder},
+    entity::{Entities, builder::EntityBuilder},
 };
 
 pub struct World { //Arc<World>
     pub(crate) entities: Mutex<Entities>,
     accessors: Mutex<HashMap<TypeId, Arc<Accessor>>>,
     storage_idxs: Mutex<HashMap<TypeId, usize>>, //Values are indices of 'storages' vec.
-    storages: UnsafeCell<[Option<Storage>; MAX_COMPONENTS]>,
+    storages: UnsafeCell<[Option<Arc<Storage>>; MAX_COMPONENTS]>,
 }
 
 impl World {
 
     pub fn new() -> Self {
 
-        const NONE: Option<Storage> = None;
-        let storage_array: [Option<Storage>; MAX_COMPONENTS] = [NONE; MAX_COMPONENTS];
+        const NONE: Option<Arc<Storage>> = None;
+        let storage_array: [Option<Arc<Storage>>; MAX_COMPONENTS] = [NONE; MAX_COMPONENTS];
 
         World {
             entities: Mutex::new(Entities::new()),
@@ -42,16 +42,82 @@ impl World {
         EntityBuilder::new()
     }
 
-    ///Used internally by the Entity Builder Pattern, called when build() is called.
+    ///Used internally by the Entity Builder Pattern, called in build().
     pub(crate) fn init_entity(&self) -> Entity {
         let id = self
             .entities
             .lock()
-            .expect("Entities mtx poisoned.")
+            .expect("antities mtx found poisoned in World.init_entity()")
             .new_entity_id();
 
-        //TODO
+        let accessor_map_guard: MutexGuard<'_, HashMap<TypeId, Arc<Accessor>>> = self
+            .accessors
+            .lock()
+            .expect("accessors mtx found poisoned in World.init_entity()");
+
+        let _storage_idxs_guard = self
+            .accessors
+            .lock()
+            .expect("storage_idxs mtx found poisoned in World.init_entity()");
+
+        //Borrow the storage and turn it into an iterator
+        let unsafe_ptr = self.storages.get();
+        let storage_iter = unsafe {
+            let array: &[Option<Arc<Storage>>; MAX_COMPONENTS] = &*unsafe_ptr;
+            let iter: std::slice::Iter<'_, Option<Arc<Storage>>> = array.as_slice().iter();
+            iter
+        };
+
         //Increase the length of all Storage vectors in ecs.storages
+        for s in storage_iter {
+            if let Some(storage) = s {
+                //Acquire the Condvar's associated Mutex for this storage and
+                //get write access.
+                let type_id = storage.component_type;
+                let accessor: Arc<Accessor> = accessor_map_guard
+                    .get(&type_id)
+                    .unwrap() //panic desired if accessor not found here
+                    .clone();
+                
+                const ERR_MSG: &str = "Accessor mtx found poisoned in world.init_entity()";
+
+                let mut accessor_state: MutexGuard<'_, AccessorState> = accessor
+                    .mtx
+                    .lock()
+                    .expect(ERR_MSG);
+
+                accessor_state.writers_waiting += 1;
+
+                accessor_state = accessor
+                    .writer_cvar
+                    .wait_while(accessor.mtx.lock().expect(ERR_MSG),
+                    |acc_state: &mut AccessorState| {
+                        !acc_state.write_allowed
+                    })
+                    .expect(ERR_MSG);
+
+                    accessor_state.read_allowed = false;
+                    accessor_state.write_allowed = false;
+                    accessor_state.writers_waiting -= 1;
+
+                //Now that we have write access to this storage,
+                //increase its length by 1, so the new Entity
+                //MAY have a component placed here.
+                //Awful lot of work to do something so small...
+                let unsafe_ptr: *mut Vec<Option<Box<dyn Any>>> = storage.inner.get();
+                unsafe {
+                    let storage_vec: &mut Vec<Option<Box<dyn Any>>> = &mut *unsafe_ptr;
+                    storage_vec.push(None);
+                }
+
+            } else {
+                //Once we hit a None, there should be no further Some's
+                //because component vecs are populated into the storage
+                //array beginning at the head, and component types
+                //cannot be removed from the ECS at runtime.
+                break;
+            }
+        }
         
         id
     }
@@ -126,20 +192,18 @@ impl World {
             .clone();    
 
         //Create index/key if this is a new storage type.
-        let num_components = storage_idxs.len();
+        let num_component_types = storage_idxs.len();
         let storage_idx = storage_idxs
             .entry(type_id)
-            .or_insert(num_components);
+            .or_insert(num_component_types);
 
         //Clone the storage.
-        let unsafe_ptr: *mut [Option<Storage>; MAX_COMPONENTS] = self.storages.get();
+        let unsafe_ptr: *mut [Option<Arc<Storage>>; MAX_COMPONENTS] = self.storages.get();
         let storage_arc = unsafe {
-            let storage_arc: &mut [Option<Storage>; MAX_COMPONENTS] = &mut *unsafe_ptr;
-            storage_arc[*storage_idx]
+            let storages: &mut [Option<Arc<Storage>>; MAX_COMPONENTS] = &mut *unsafe_ptr;
+            storages[*storage_idx]
             .get_or_insert_with(|| {
-                    let mut new_vec = Vec::with_capacity(MAX_COMPONENTS);
-                    new_vec.fill_with(|| { None });
-                    Arc::new(UnsafeCell::new(new_vec))
+                    Arc::new(Storage::new(type_id))
             })
             .clone()
         };
@@ -187,14 +251,12 @@ impl World {
                 .or_insert(num_components);
 
             //Create storage if this is a new type. Clone it either way.
-            let unsafe_ptr: *mut [Option<Storage>; MAX_COMPONENTS] = self.storages.get();
+            let unsafe_ptr: *mut [Option<Arc<Storage>>; MAX_COMPONENTS] = self.storages.get();
             let storage_arc = unsafe {
-                let storage_arc: &mut [Option<Storage>; MAX_COMPONENTS] = &mut *unsafe_ptr;
-                storage_arc[*storage_idx]
+                let storages: &mut [Option<Arc<Storage>>; MAX_COMPONENTS] = &mut *unsafe_ptr;
+                storages[*storage_idx]
                 .get_or_insert_with(|| {
-                        let mut new_vec = Vec::with_capacity(MAX_COMPONENTS);
-                        new_vec.fill_with(|| { None });
-                        Arc::new(UnsafeCell::new(new_vec))
+                        Arc::new(Storage::new(type_id))
                 })
                 .clone()
             };

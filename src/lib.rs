@@ -12,15 +12,16 @@ use std::{
 };
 
 mod accessor;
-mod world;
 mod entity;
+mod storage;
+mod world;
 
 use world::*;
 use accessor::*;
 
 pub(crate) const MAX_COMPONENTS: usize = 64;
 
-pub(crate) type Storage = Arc<UnsafeCell<Vec<Option<Box<dyn Any>>>>>;
+//pub(crate) type Storage = Arc<UnsafeCell<Vec<Option<Box<dyn Any>>>>>;
 pub(crate) type Entity = usize;
 
 #[cfg(test)]
