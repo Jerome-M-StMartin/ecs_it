@@ -6,7 +6,6 @@
 //-----------------------------------------------------------------------------
 
 use std::collections::HashSet;
-use rand::random;
 
 use super::Entity;
 
@@ -33,20 +32,22 @@ impl Entities {
     pub(crate) fn new_entity_id(&mut self) -> Entity {
         let entity_id = self.get_next_id();
         self.active_entities.insert(entity_id);
+        self.num_entities += 1;
 
         entity_id
     }
 
+    pub(crate) fn rm_entity(&mut self, ent: Entity) {
+        //Panics if ent doesn't exist.
+        let dead_entity = self.active_entities.take(&ent).unwrap();
+        self.dead_entities.push(dead_entity);
+    }
+
     fn get_next_id(&mut self) -> Entity {
-        let mut new_id: usize = random();
+        let mut new_id: usize = self.num_entities;
 
         if let Some(id) = self.dead_entities.pop() {
             new_id = id;
-
-        } else {
-            while self.active_entities.contains(&new_id) {
-                new_id = random();
-            }
         }
 
         new_id

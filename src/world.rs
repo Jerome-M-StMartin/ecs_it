@@ -44,21 +44,25 @@ impl World {
 
     ///Used internally by the Entity Builder Pattern, called in build().
     pub(crate) fn init_entity(&self) -> Entity {
+        println!("init_entity() called...");
         let id = self
             .entities
             .lock()
-            .expect("antities mtx found poisoned in World.init_entity()")
+            .expect("entities mtx found poisoned in World.init_entity()")
             .new_entity_id();
+        println!("entity id made...");
 
         let accessor_map_guard: MutexGuard<'_, HashMap<TypeId, Arc<Accessor>>> = self
             .accessors
             .lock()
             .expect("accessors mtx found poisoned in World.init_entity()");
+        println!("accessor_map_guard acquired...");
 
         let _storage_idxs_guard = self
-            .accessors
+            .storage_idxs
             .lock()
             .expect("storage_idxs mtx found poisoned in World.init_entity()");
+        println!("storage_idxs_guard acquired...");
 
         //Borrow the storage and turn it into an iterator
         let unsafe_ptr = self.storages.get();
@@ -67,9 +71,15 @@ impl World {
             let iter: std::slice::Iter<'_, Option<Arc<Storage>>> = array.as_slice().iter();
             iter
         };
+        println!("storage iter made from unsafe ptr, beginning iteration...");
+
+        let mut iterations: usize = 0; //FOR TESTING ONLY
 
         //Increase the length of all Storage vectors in ecs.storages
         for s in storage_iter {
+
+            println!("iterations: {}", iterations); //FOR TESTING ONLY
+            
             if let Some(storage) = s {
                 //Acquire the Condvar's associated Mutex for this storage and
                 //get write access.
@@ -108,6 +118,7 @@ impl World {
                 unsafe {
                     let storage_vec: &mut Vec<Option<Box<dyn Any>>> = &mut *unsafe_ptr;
                     storage_vec.push(None);
+                    println!("------storage_vec len: {}", storage_vec.len());
                 }
 
             } else {
@@ -117,7 +128,11 @@ impl World {
                 //cannot be removed from the ECS at runtime.
                 break;
             }
+
+            iterations += 1; //FOR TESTING ONLY
         }
+
+        println!("iter loop exited, about to return...");
         
         id
     }

@@ -5,12 +5,6 @@
 //      for use in terminal-emulated roguelikes.
 //      Minimal probably means no bitmasks, but DOES include thread-safe access.
 
-use std::{
-    sync::Arc,
-    cell::UnsafeCell,
-    any::Any,
-};
-
 mod accessor;
 mod entity;
 mod storage;
@@ -21,21 +15,47 @@ use accessor::*;
 
 pub(crate) const MAX_COMPONENTS: usize = 64;
 
-//pub(crate) type Storage = Arc<UnsafeCell<Vec<Option<Box<dyn Any>>>>>;
 pub(crate) type Entity = usize;
 
 #[cfg(test)]
 mod tests {
     
+    //Must run 'cargo test -- --nocapture' to allow printing of time elapsed
+
     use super::*;
+    use std::time::Instant;
 
     struct TestComponent {
         val: usize,
     }
-
+/*
     #[test]
-    fn add_rm_component() {
+    fn create_new_entity() {
+        let now = Instant::now();
+
         let w = World::new();
-        w.add_component(0, TestComponent { val: 42, });
+        let entity0: usize = w.init_entity();
+        let entity1: usize = w.init_entity();
+        let entity2: usize = w.init_entity();
+
+        assert_eq!(entity0, 0);
+        assert_eq!(entity1, 1);
+        assert_eq!(entity2, 2);
+
+        println!("Time Elapsed during create_new_entity(): {}", now.elapsed().as_millis());
+    }
+*/
+    #[test]
+    fn add_component() {
+        let now = Instant::now();
+
+        let w = World::new();
+        let entity0: usize = w.init_entity();
+        let _entity1: usize = w.init_entity();
+        let _entity2: usize = w.init_entity();
+
+        w.add_component(entity0, TestComponent { val: 42, });
+
+        println!("Time Elapsed during create_new_entity(): {}", now.elapsed().as_millis());
     }
 }
