@@ -22,6 +22,7 @@ impl EntityBuilder {
     }
 
     pub fn with<T: 'static, Any>(mut self, ecs: &World, component: T) -> EntityBuilder {
+        ecs.register_component::<T>();
         self.components.push(Box::new(component));
         self
     }

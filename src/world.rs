@@ -5,36 +5,42 @@ use std::{
     collections::HashMap,
     any::{Any, TypeId}, //TypeId::of<T>() -> TypeId;
     sync::{Arc, Mutex, MutexGuard},
-    cell::UnsafeCell,
 };
 
 use super::{
-    accessor::{Accessor, AccessGuard, AccessorState},
-    storage::Storage,
+    storage::{Storage, StorageGuard, Accessor, AccessorState},
     Entity, //usize
     MAX_COMPONENTS,
     entity::{Entities, builder::EntityBuilder},
 };
 
+const STORAGE_POISON: &str = "storages mtx found poisoned in world.rs";
+
+///The root of the library; must instantiate. Provide a non-zero estimate of
+///the total number of entities you wish to instantiate at any given time.
+///It's used as the initialization length of Storage vecs.
+///
+///This estimate should probably not exceed a few thousand - if you need an
+///ECS that can handle that volume in a performant manner I suggest 'specs'.
 pub struct World { //Arc<World>
+    pub(crate) num_entities_estimate: usize, //used as init size for Storage vecs.
     pub(crate) entities: Mutex<Entities>,
-    accessors: Mutex<HashMap<TypeId, Arc<Accessor>>>,
-    storage_idxs: Mutex<HashMap<TypeId, usize>>, //Values are indices of 'storages' vec.
-    storages: UnsafeCell<[Option<Arc<Storage>>; MAX_COMPONENTS]>,
+    storages: Mutex<HashMap<TypeId, Arc<Storage>>>,
 }
 
 impl World {
 
-    pub fn new() -> Self {
+    pub fn new(num_entities_estimate: usize) -> Self {
+
+        assert!(num_entities_estimate > 0); //should also prob. not exceed ~10,000
 
         const NONE: Option<Arc<Storage>> = None;
         let storage_array: [Option<Arc<Storage>>; MAX_COMPONENTS] = [NONE; MAX_COMPONENTS];
 
         World {
+            num_entities_estimate,
             entities: Mutex::new(Entities::new()),
-            accessors: Mutex::new(HashMap::new()),
-            storage_idxs: Mutex::new(HashMap::new()),
-            storages: UnsafeCell::new(storage_array),
+            storages: Mutex::new(HashMap::new()),
         }
     }
 
@@ -44,99 +50,55 @@ impl World {
 
     ///Used internally by the Entity Builder Pattern, called in build().
     pub(crate) fn init_entity(&self) -> Entity {
-        println!("init_entity() called...");
         let id = self
             .entities
             .lock()
-            .expect("entities mtx found poisoned in World.init_entity()")
+            .expect("entities mtx found poisoned in World::init_entity()")
             .new_entity_id();
-        println!("entity id made...");
 
-        let accessor_map_guard: MutexGuard<'_, HashMap<TypeId, Arc<Accessor>>> = self
-            .accessors
+        let storage_map_guard = self
+            .storages
             .lock()
-            .expect("accessors mtx found poisoned in World.init_entity()");
-        println!("accessor_map_guard acquired...");
+            .expect(STORAGE_POISON);
 
-        let _storage_idxs_guard = self
-            .storage_idxs
-            .lock()
-            .expect("storage_idxs mtx found poisoned in World.init_entity()");
-        println!("storage_idxs_guard acquired...");
-
-        //Borrow the storage and turn it into an iterator
-        let unsafe_ptr = self.storages.get();
-        let storage_iter = unsafe {
-            let array: &[Option<Arc<Storage>>; MAX_COMPONENTS] = &*unsafe_ptr;
-            let iter: std::slice::Iter<'_, Option<Arc<Storage>>> = array.as_slice().iter();
-            iter
-        };
-        println!("storage iter made from unsafe ptr, beginning iteration...");
-
-        let mut iterations: usize = 0; //FOR TESTING ONLY
+        let storage_map_keys = storage_map_guard.keys();
 
         //Increase the length of all Storage vectors in ecs.storages
-        for s in storage_iter {
+        for type_id in storage_map_keys {
 
-            println!("iterations: {}", iterations); //FOR TESTING ONLY
-            
-            if let Some(storage) = s {
-                //Acquire the Condvar's associated Mutex for this storage and
-                //get write access.
-                let type_id = storage.component_type;
-                let accessor: Arc<Accessor> = accessor_map_guard
-                    .get(&type_id)
-                    .unwrap() //panic desired if accessor not found here
-                    .clone();
-                
-                const ERR_MSG: &str = "Accessor mtx found poisoned in world.init_entity()";
+            let storage_guard = World::req_access_while_map_locked(&storage_map_guard, type_id);
+            let storage: &mut Vec<Option<Box<dyn Any>>> = storage_guard.val_mut();
 
-                let mut accessor_state: MutexGuard<'_, AccessorState> = accessor
-                    .mtx
-                    .lock()
-                    .expect(ERR_MSG);
-
-                accessor_state.writers_waiting += 1;
-
-                accessor_state = accessor
-                    .writer_cvar
-                    .wait_while(accessor.mtx.lock().expect(ERR_MSG),
-                    |acc_state: &mut AccessorState| {
-                        !acc_state.write_allowed
-                    })
-                    .expect(ERR_MSG);
-
-                    accessor_state.read_allowed = false;
-                    accessor_state.write_allowed = false;
-                    accessor_state.writers_waiting -= 1;
-
-                //Now that we have write access to this storage,
-                //increase its length by 1, so the new Entity
-                //MAY have a component placed here.
-                //Awful lot of work to do something so small...
-                let unsafe_ptr: *mut Vec<Option<Box<dyn Any>>> = storage.inner.get();
-                unsafe {
-                    let storage_vec: &mut Vec<Option<Box<dyn Any>>> = &mut *unsafe_ptr;
-                    storage_vec.push(None);
-                    println!("------storage_vec len: {}", storage_vec.len());
-                }
-
-            } else {
-                //Once we hit a None, there should be no further Some's
-                //because component vecs are populated into the storage
-                //array beginning at the head, and component types
-                //cannot be removed from the ECS at runtime.
-                break;
-            }
-
-            iterations += 1; //FOR TESTING ONLY
+            //Now that we have write access to this storage,
+            //increase its length by 1, so the new Entity
+            //MAY have a component placed here.
+            storage.push(None);
         }
-
-        println!("iter loop exited, about to return...");
         
         id
     }
-    
+   
+    ///Component types must be registered with the ECS before they are used
+    ///or otherwise accessed. Failing to do so will cause a panic.
+    pub fn register_component<T: 'static + Any>(&self) {
+
+        let type_id = TypeId::of::<T>();
+        let mut storages_guard: MutexGuard<'_, HashMap<TypeId, Arc<Storage>>> = self
+            .storages
+            .lock()
+            .expect(STORAGE_POISON);
+
+        if storages_guard.contains_key(&type_id) {
+            //This component has already been registered.
+            return
+        }
+
+        let should_be_none = storages_guard
+            .insert(type_id, Arc::new(Storage::new(type_id, self.num_entities_estimate)));
+
+        assert!(should_be_none.is_none());
+    }
+
     ///Adds a component of type T, which must be Any, to the passed-in entity.
     ///The component's storage is lazily initialized herein, so this can be
     ///the first time the ECS learns about this component type without causing
@@ -146,10 +108,9 @@ impl World {
     ///of this type, this does NOT re-allocate memory. The new component is
     ///placed into the old component's box. :]
     pub fn add_component<T: 'static + Any>(&self, ent: Entity, comp: T) {
-
         let guard = self.req_access::<T>(); //This may block.
 
-        let storage: &mut Vec<Option<Box<dyn Any>>> = guard.val_mut::<T>();
+        let storage: &mut Vec<Option<Box<dyn Any>>> = guard.val_mut/*::<T>*/();
         let entity_slot: &mut Option<Box<dyn Any>> = &mut storage[ent];
         
         //To avoid unneccesary memory allocations, we re-use the box in this
@@ -170,7 +131,7 @@ impl World {
 
         let guard = self.req_access::<T>(); //This may block.
 
-        let storage: &mut Vec<Option<Box<dyn Any>>> = guard.val_mut::<T>();
+        let storage: &mut Vec<Option<Box<dyn Any>>> = guard.val_mut/*::<T>*/();
         let entity_slot: &mut Option<Box<dyn Any>> = &mut storage[ent];
 
         entity_slot.take()
@@ -185,45 +146,21 @@ impl World {
     ///because this ECS uses lazy initialization of storages: each access
     ///request for a novel Storage type causes runtime initialization of
     ///that storage.
-    pub fn req_access<T: 'static + Any>(&self) -> AccessGuard {
+    pub fn req_access<T: 'static + Any>(&self) -> StorageGuard {
         
         let type_id = TypeId::of::<T>();
 
-        //Acquire Lock
-        let mut accessors = self
-            .accessors
+        let storage_arc = self
+            .storages
             .lock()
-            .expect("Mutex found poisoned during world.req_access()");
-
-        //Acquire Lock
-        let mut storage_idxs = self
-            .storage_idxs
-            .lock()
-            .expect("Mutex found poisoned during world.req_access()");
-    
-        //Create accessor if this is a new storage type. Clone it either way.
-        let accessor_arc: Arc<Accessor> = accessors.entry(type_id)
-            .or_insert(Arc::new(Accessor::new(type_id)))
-            .clone();    
-
-        //Create index/key if this is a new storage type.
-        let num_component_types = storage_idxs.len();
-        let storage_idx = storage_idxs
-            .entry(type_id)
-            .or_insert(num_component_types);
-
-        //Clone the storage.
-        let unsafe_ptr: *mut [Option<Arc<Storage>>; MAX_COMPONENTS] = self.storages.get();
-        let storage_arc = unsafe {
-            let storages: &mut [Option<Arc<Storage>>; MAX_COMPONENTS] = &mut *unsafe_ptr;
-            storages[*storage_idx]
-            .get_or_insert_with(|| {
-                    Arc::new(Storage::new(type_id))
+            .expect(STORAGE_POISON)
+            .get(&type_id)
+            .unwrap_or_else(|| {
+                panic!("Attempted to request access to uninitialized component storage");
             })
-            .clone()
-        };
+            .clone();
 
-        AccessGuard::new(accessor_arc, storage_arc)
+        StorageGuard::new(storage_arc)
     }
 
     ///Use this to gain thread-safe access to multiple ECS Storages and/or
@@ -235,50 +172,43 @@ impl World {
     ///because this ECS uses lazy initialization of storages: each access
     ///request for a novel Storage type causes runtime initialization of
     ///that storage.
-    pub fn req_multi_access(&self, id_vec: Vec<TypeId>) -> Vec<AccessGuard> {
+    pub fn req_multi_access(&self, id_vec: Vec<TypeId>) -> Vec<StorageGuard> {
 
-        let mut guards: Vec<AccessGuard> = Vec::new();
+        let mut guards: Vec<StorageGuard> = Vec::new();
 
-        //Acquire Lock
-        let mut accessors = self
-            .accessors
+        //Lock storages map until all requested Storages are acquired and returned.
+        let storage_map_guard = self
+            .storages
             .lock()
-            .expect("Mutex found poisoned during world.req_multi_access()");
-
-        //Acquire Lock
-        let mut storage_idxs = self
-            .storage_idxs
-            .lock()
-            .expect("Mutex found poisoned during world.req_multi_access()");
+            .expect(STORAGE_POISON);
 
         for type_id in id_vec {
-
-            //Create accessor if this is a new storage type. Clone it either way.
-            let accessor_arc = accessors
-                .entry(type_id)
-                .or_insert(Arc::new(Accessor::new(type_id)))
+            
+            let storage_arc = storage_map_guard
+                .get(&type_id)
+                .unwrap_or_else(|| {
+                    panic!("Attempted to request access to uninitialized component storage");
+                })
                 .clone();
 
-            //Create index/key if this is a new storage type. Get key either way.
-            let num_components = storage_idxs.len();
-            let storage_idx = storage_idxs
-                .entry(type_id)
-                .or_insert(num_components);
-
-            //Create storage if this is a new type. Clone it either way.
-            let unsafe_ptr: *mut [Option<Arc<Storage>>; MAX_COMPONENTS] = self.storages.get();
-            let storage_arc = unsafe {
-                let storages: &mut [Option<Arc<Storage>>; MAX_COMPONENTS] = &mut *unsafe_ptr;
-                storages[*storage_idx]
-                .get_or_insert_with(|| {
-                        Arc::new(Storage::new(type_id))
-                })
-                .clone()
-            };
-
-            guards.push(AccessGuard::new(accessor_arc, storage_arc));
+            guards.push(StorageGuard::new(storage_arc));
         }
         
         guards
+    }
+
+    ///Used internally during entity initialization.
+    fn req_access_while_map_locked(
+        storage_map_guard: &MutexGuard<'_, HashMap<TypeId, Arc<Storage>>>,
+        type_id: &TypeId) -> StorageGuard {
+        
+        let storage_arc = storage_map_guard
+            .get(type_id)
+             .unwrap_or_else(|| {
+                panic!("Attempted to request access to uninitialized component storage");
+             })
+             .clone();
+
+        StorageGuard::new(storage_arc)
     }
 }
