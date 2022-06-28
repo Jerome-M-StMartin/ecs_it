@@ -12,10 +12,7 @@ use std::{
     sync::Arc,
 };
 
-use super::{
-    Storage,
-    accessor::AccessorState
-};
+use super::{accessor::AccessorState, Storage};
 
 ///What you get when you ask the ECS for access to a Storage or Resource via req_access().
 ///These should NOT be held long-term. Do your work then allow this struct to drop, else
@@ -27,12 +24,10 @@ pub struct StorageGuard {
 
 impl StorageGuard {
     pub(crate) fn new(storage: Arc<Storage>) -> Self {
-        StorageGuard {
-            storage,
-        }
+        StorageGuard { storage }
     }
 
-    pub(crate) fn val/*<T: 'static>*/(&self) -> &Vec<Option<Box<dyn Any>>> {
+    pub fn val(&self) -> &Vec<Option<Box<dyn Any>>> {
         const READ_ERR_MSG: &str = "Accessor mtx found poisoned in StorageGuard.val().";
 
         //assert_eq!(self.storage.accessor.type_id, TypeId::of::<T>());
@@ -45,30 +40,25 @@ impl StorageGuard {
             .storage
             .accessor
             .reader_cvar
-            .wait_while(self.storage.accessor.mtx.lock().expect(READ_ERR_MSG), |acc_state: &mut AccessorState| {
-                !acc_state.read_allowed
-            })
+            .wait_while(
+                self.storage.accessor.mtx.lock().expect(READ_ERR_MSG),
+                |acc_state: &mut AccessorState| !acc_state.read_allowed,
+            )
             .expect(READ_ERR_MSG);
 
         accessor_state.write_allowed = false;
         accessor_state.readers += 1;
 
-        unsafe {
-            &*self.storage.inner.get()
-        }
+        unsafe { &*self.storage.inner.get() }
     }
 
-    pub(crate) fn val_mut/*<T: 'static>*/(&self) -> &mut Vec<Option<Box<dyn Any>>> {
+    pub fn val_mut(&self) -> &mut Vec<Option<Box<dyn Any>>> {
         const WRITE_ERR_MSG: &str = "Accessor mtx found poisoned in StorageGuard.val_mut().";
-        
+
         //assert_eq!(self.storage.accessor.type_id, TypeId::of::<T>());
-        
-        let mut accessor_state: std::sync::MutexGuard<'_, AccessorState> = self
-            .storage
-            .accessor
-            .mtx
-            .lock()
-            .expect(WRITE_ERR_MSG);
+
+        let mut accessor_state: std::sync::MutexGuard<'_, AccessorState> =
+            self.storage.accessor.mtx.lock().expect(WRITE_ERR_MSG);
 
         accessor_state.writers_waiting += 1;
 
@@ -89,12 +79,9 @@ impl StorageGuard {
         accessor_state.write_allowed = false;
         accessor_state.writers_waiting -= 1;
 
-        unsafe {
-            &mut *self.storage.inner.get()
-        }
+        unsafe { &mut *self.storage.inner.get() }
     }
 }
-
 
 ///Writer-Prioritized Concurrent Access:
 ///
@@ -110,7 +97,6 @@ impl StorageGuard {
 ///in-between.
 impl Drop for StorageGuard {
     fn drop(&mut self) {
-
         let mut accessor_state = self
             .storage
             .accessor
@@ -124,7 +110,7 @@ impl Drop for StorageGuard {
                 //now safe to allow any type of access.
                 accessor_state.write_allowed = true;
                 accessor_state.read_allowed = true;
-            },
+            }
 
             (false, true) => {
                 //This StorageGuard was granting non-exclusive Read access,
@@ -148,11 +134,14 @@ impl Drop for StorageGuard {
                     //self-correct once a writer drops, but until that point
                     //behaviour would be incorrect.
                 }
-            },
+            }
 
             (w, r) => {
-                panic!("This Condvar configuration should not be possible: ({}, {})", w, r)
-            },
+                panic!(
+                    "This Condvar configuration should not be possible: ({}, {})",
+                    w, r
+                )
+            }
         }
 
         //Writer prioritization:

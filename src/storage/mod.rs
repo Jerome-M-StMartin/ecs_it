@@ -30,9 +30,8 @@ pub(crate) struct Storage {
 
 impl Storage {
     pub(crate) fn new(component_type: TypeId, num_ents_estimate: usize) -> Self {
-        
         let mut new_vec = Vec::with_capacity(num_ents_estimate);
-        new_vec.fill_with(|| { None });
+        new_vec.fill_with(|| None);
 
         Storage {
             component_type,
@@ -41,4 +40,3 @@ impl Storage {
         }
     }
 }
-

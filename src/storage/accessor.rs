@@ -46,4 +46,3 @@ pub(crate) struct AccessorState {
     pub write_allowed: bool,
     pub writers_waiting: u16, //slept writers, NOT current writers (which is always 0..1)
 }
-

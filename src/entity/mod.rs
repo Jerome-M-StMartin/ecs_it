@@ -37,10 +37,17 @@ impl Entities {
         entity_id
     }
 
-    pub(crate) fn rm_entity(&mut self, ent: Entity) {
+    ///This returns a boolean corresponding to whether the entity existed or not.
+    ///If it existed, it was removed and this will return true, else false.
+    ///Attempting to remove an Entity that doesn't exist won't panic.
+    pub(crate) fn rm_entity(&mut self, ent: Entity) -> bool {
         //Panics if ent doesn't exist.
-        let dead_entity = self.active_entities.take(&ent).unwrap();
-        self.dead_entities.push(dead_entity);
+        if let Some(entity_to_rm) = self.active_entities.take(&ent) {
+            self.dead_entities.push(entity_to_rm);
+            return true;
+        }
+
+        false
     }
 
     fn get_next_id(&mut self) -> Entity {
@@ -53,4 +60,3 @@ impl Entities {
         new_id
     }
 }
-

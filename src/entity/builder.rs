@@ -8,6 +8,7 @@
 use std::any::Any;
 
 use super::super::world::World;
+use super::super::Entity;
 
 ///User-facing Builder Pattern object. Use this to make new Entities.
 pub struct EntityBuilder {
@@ -27,11 +28,13 @@ impl EntityBuilder {
         self
     }
 
-    pub fn build(self, ecs: &World) {
+    pub fn build(self, ecs: &World) -> Entity {
         let entity = ecs.init_entity();
 
         for c in self.components {
             ecs.add_component(entity, c);
         }
+
+        entity
     }
 }
