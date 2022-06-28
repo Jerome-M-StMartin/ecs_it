@@ -12,29 +12,32 @@ use super::super::Entity;
 
 ///User-facing Builder Pattern object. Use this to make new Entities.
 pub struct EntityBuilder {
-    components: Vec<Box<dyn Any>>,
+    //components: Vec<Box<dyn Any>>,
+    entity: Entity,
 }
 
 impl EntityBuilder {
-    pub fn new() -> EntityBuilder {
+    pub fn new(ecs: &World) -> EntityBuilder {
         EntityBuilder {
-            components: Vec::new(),
+            ////components: Vec::new(),
+            entity: ecs.init_entity(),
         }
     }
 
-    pub fn with<T: 'static, Any>(mut self, ecs: &World, component: T) -> EntityBuilder {
+    pub fn with<T: 'static + Any>(mut self, ecs: &World, component: T) -> EntityBuilder {
         ecs.register_component::<T>();
-        self.components.push(Box::new(component));
+        ecs.add_component(self.entity, component);
         self
     }
 
     pub fn build(self, ecs: &World) -> Entity {
-        let entity = ecs.init_entity();
+        //let entity = ecs.init_entity();
 
-        for c in self.components {
+        /*for boxed_component in self.components {
+            println!("Adding component...\n\r");
             ecs.add_component(entity, c);
-        }
+        }*/
 
-        entity
+        self.entity
     }
 }

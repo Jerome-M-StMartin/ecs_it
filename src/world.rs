@@ -8,8 +8,8 @@ use std::{
 };
 
 use super::{
-    entity::{builder::EntityBuilder, Entities},
-    storage::{Accessor, AccessorState, Storage, StorageGuard},
+    entity::Entities,
+    storage::{Storage, StorageGuard},
     Entity, //usize
     MAX_COMPONENTS,
 };
@@ -43,13 +43,8 @@ impl World {
         }
     }
 
-    ///Builder Pattern for creating new Entities.
-    pub fn build_entity() -> EntityBuilder {
-        EntityBuilder::new()
-    }
-
     ///Alternative to using the entity builder pattern.
-    pub fn create_blank_entity(&self) -> Entity {
+    pub fn create_entity(&self) -> Entity {
         self.init_entity()
     }
 

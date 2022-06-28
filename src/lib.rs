@@ -40,73 +40,57 @@
 //!
 //!```
 //! use ecs_it::*;
+//! use std::any::Any;
 //!
 //! // Define a Struct which will be a Component:
 //! struct ExampleComponent {
 //!     example_data: usize,
 //! }
+//! let example_component = ExampleComponent { example_data: 7331 };
 //!
-//! # fn main() {
-//!     /*
-//!     Initialize the ECS World. The new() fn takes one argument, which is an
-//!     ESTIMATE of the number of Entities that will exist in your program at
-//!     any given time. Internally, Storages contain a Vec, and this estimate
-//!     is used when initializing these vectors to allocate space to support
-//!     the estimated number of entities. This is not critical, as the vectors
-//!     can re-allocate themselves more space at runtime, but not having to
-//!     perform this re-allocation will provide a small performance benefit.
-//!     The estimate MUST be an integer greater than Zero.
-//!     */
-//!     
-//!     let num_entities_estimate: usize = 100;
-//!     let world = ecs_it::World::new(num_entities_estimate);
+//! /*
+//! * Initialize the ECS World. The new() fn takes one argument, which is an
+//! * ESTIMATE of the number of Entities that will exist in your program at
+//! * any given time. Internally, Storages contain a Vec, and this estimate
+//! * is used when initializing these vectors to allocate space to support
+//! * the estimated number of entities. This is not critical, as the vectors
+//! * can re-allocate themselves more space at runtime, but not having to
+//! * perform this re-allocation will provide a small performance benefit.
+//! * The estimate MUST be an integer greater than Zero.
+//! */
+//! 
+//! let num_entities_estimate: usize = 100;
+//! let world = ecs_it::world::World::new(num_entities_estimate);
 //!
-//!     /*
-//!     Entity creation is done via a Builder Pattern. Any number of components
-//!     (of unique types) can be added to the entity using builder.with().
-//!     Finally, builder.build() MUST be called at the end in order to actually
-//!     initialze the Entity. This will return the ID of that Entity, which
-//!     again is just a usize. Hold on to this ID if you want to add or remove
-//!     components from that Entity later, or if you want to remove the Entity
-//!     from the ECS.
-//!     */
-//!     let my_component = TestComponent { example_data: 1337 };
+//! // Entity Creation:
+//! let entity = world.create_entity();
 //!
-//!     let entity_builder: EntityBuilder = world.build_entity();
+//! /*
+//! * Adding Components to Entities:
+//! * You MUST register all components before adding any of them to an Entity,
+//! * failure to do so will result in a panic.
+//! */
 //!
-//!     let my_entity: Entity = entity_builder
-//!         .with<TestComponent>(&world, my_component);
-//!         .build();
+//! world.register_component::<ExampleComponent>();
+//! world.add_component(entity, example_component);
 //!
-//!     /*
-//!     Alternative Entity Creation:
+//! // Yoy may remove Components from an Entity via the following:
+//! let the_removed_component: Option<Box<dyn Any>> = world.rm_component::<ExampleComponent>(entity);
 //!
-//!     If you don't want to use the Builder Pattern for whatever reason,
-//!     Entities can also be created manually, but you MUST register
-//!     components with the ECS before you try to add them to the Entity.
-//!     Failure to do so will result in a panic.
-//!     */
-//!
-//!     world.register_component<TestComponent>();
-//!
-//!     let test_component = TestComponent { example_data: 7331 };
-//!
-//!     let alt_entity: Entity = world.create_blank_entity();
-//!
-//!     world.add_component(alt_entity, test_component);
-//!
-//!     /*
-//!     No matter which way you create an Entity, you can later remove
-//!     Components from an Entity via the following:
-//!     */
-//!     let the_removed_component: Option<Box<dyn Any>> = world.rm_component<TestComponent>(alt_entity);
-//!
-//! }
 //!```
 //!
 //! # How to query the ECS for existing Storages/Components:
 //!```
-//! # fn main() {
+//! use std::any::Any;
+//! use ecs_it::*;
+//!
+//! struct ExampleComponent {
+//!     example_data: usize,
+//! }
+//!
+//! let world = world::World::new(100);
+//! world.register_component::<ExampleComponent>();
+//!
 //! /*
 //! There are only two functions you need to know in order to gain either
 //! immutable or mutable access to any given Storage, which will return a vector
@@ -123,13 +107,13 @@
 //!
 //! //For immutable access you call .val() on a StorageGuard.
 //! {
-//!     let storage_guard: StorageGuard = world.req_access<TestComponent>();
+//!     let storage_guard = world.req_access::<ExampleComponent>();
 //!     let storage: &Vec<Option<Box<dyn Any>>> = storage_guard.val();
 //! }
 //!
 //! //For mutable access do you call .val_mut() on a StorageGuard.
 //! {
-//!     let storage_guard: StorageGuard = world.req_access<TestComponent>();
+//!     let storage_guard = world.req_access::<ExampleComponent>();
 //!     let storage: &mut Vec<Option<Box<dyn Any>>> = storage_guard.val_mut();
 //! }
 //!         
@@ -146,12 +130,11 @@
 //! access to that storage (either manually or by simply allowing the guard to
 //! fall out of scope).
 //! */
-//! }
 //!```
 
 mod entity;
 mod storage;
-mod world;
+pub mod world;
 
 pub(crate) const MAX_COMPONENTS: usize = 64;
 
@@ -162,6 +145,7 @@ mod tests {
 
     //Must run 'cargo test -- --nocapture' to allow printing of time elapsed
 
+    use std::any::Any;
     use super::world::World;
     use std::time::Instant;
 
@@ -170,20 +154,20 @@ mod tests {
     }
 
     #[test]
-    fn create_new_entity() {
+    fn create_raw_entity() {
         let now = Instant::now();
 
         let w = World::new(3);
-        let entity0: usize = w.init_entity();
-        let entity1: usize = w.init_entity();
-        let entity2: usize = w.init_entity();
+        let entity0: usize = w.create_entity();
+        let entity1: usize = w.create_entity();
+        let entity2: usize = w.create_entity();
 
         assert_eq!(entity0, 0);
         assert_eq!(entity1, 1);
         assert_eq!(entity2, 2);
 
         println!(
-            "Time Elapsed during create_new_entity(): {}",
+            "Time Elapsed during create_raw_entity(): {}",
             now.elapsed().as_nanos()
         );
     }
@@ -198,11 +182,33 @@ mod tests {
             println!("Time to register component: {}", now.elapsed().as_nanos());
 
             now = Instant::now();
-            entity0 = w.init_entity();
+            entity0 = w.create_entity();
             println!("Time to init entity: {}", now.elapsed().as_nanos());
         }
         now = Instant::now();
         w.add_component(entity0, TestComponent { val: 42 });
         println!("Time to add component(): {}", now.elapsed().as_nanos());
+    }
+
+    #[test]
+    fn doctest_1() {
+        use super::*;
+    
+        struct ExampleComponent {
+            example_data: usize,
+        }
+
+        let num_entities_estimate: usize = 100;
+        let world = World::new(num_entities_estimate);
+          
+        world.register_component::<ExampleComponent>();
+        
+        let test_component = ExampleComponent { example_data: 7331 };
+        
+        let alt_entity: Entity = world.create_entity();
+        
+        world.add_component(alt_entity, test_component);
+        
+        let the_removed_component: Option<Box<dyn Any>> = world.rm_component::<ExampleComponent>(alt_entity);
     }
 }
