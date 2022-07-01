@@ -43,12 +43,10 @@ impl World {
         }
     }
 
-    ///Alternative to using the entity builder pattern.
     pub fn create_entity(&self) -> Entity {
         self.init_entity()
     }
 
-    ///Used internally by the Entity Builder Pattern, called in build().
     pub(crate) fn init_entity(&self) -> Entity {
         let id = self
             .entities

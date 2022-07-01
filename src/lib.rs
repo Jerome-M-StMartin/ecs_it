@@ -1,17 +1,15 @@
 //Jerome M. St.Martin
 //June 15, 2022
 
-//! # ECS_IT
-//!
 //! # Key Words / Legend:
 //!
 //! ECS - Entity-Component-System Architecture
 //!
-//! Entity - An ID which represents a game entity. Type: usize
+//! Entity - A usize which represents an in-diegesis 'thing' in the game.
 //!
-//! Component - Data associated with a specific Entity. Type: 'static + Any
+//! Component - A struct associated with a specific Entity.
 //!
-//! Storage - A container for Components of a specific type.
+//! Storage - A vector of Components of a specific type.
 //!
 //! System - Logic that operates over one or more Components within one or more Storages.
 //!
@@ -25,11 +23,17 @@
 //! RwLock over each Storage individually. Threads are put to sleep while they wait via the
 //! rust std Condvar API.
 //!
+//! Given that each thread may access some subset of Storages, parallel access is possible if
+//! and only if the intersection of sets being accessed at any given moment between two or more
+//! threads is the null set.
+//!
 //! There is no built-in System API. Implementing Systems is left up to the user of this crate.
 //!
-//! Usage of this crate boils down to calling ecs_it::World::new(...), and interacting with the API
-//! of the returned struct. Beyond that, the user makes API calls on StorageGuards returned from
-//! the world API, which are set up to work very similarly to the std::sync::Mutex API.
+//! Usage of this crate boils down to calling ecs_it::World::new(...), registering all components,
+//! then requesting access to storages which results in being handed a StorageGuard struct. The
+//! API on this StorageGuard provides BLOCKING access to its guarded Storage, and dropping this
+//! StorageGuard (as it falls out of scope) triggers unlocking/concurrency logic for its underlying
+//! Storage. You never have to explicitly lock or unlock any Mutex or whatever.
 //!
 //! The World is a container for the various Storages and Entities you create, and it should be
 //! stored in an Arc<> for shared ownership between threads that need access to the ECS.
@@ -46,6 +50,7 @@
 //! struct ExampleComponent {
 //!     example_data: usize,
 //! }
+//!
 //! let example_component = ExampleComponent { example_data: 7331 };
 //!
 //! /*
@@ -62,19 +67,18 @@
 //! let num_entities_estimate: usize = 100;
 //! let world = ecs_it::world::World::new(num_entities_estimate);
 //!
+//! /*
+//! * IMPORTANT:
+//! * You MUST register all components before creating any entities, and
+//! * certainly before adding any components to any entities.
+//! */
+//! world.register_component::<ExampleComponent>();
+//!
 //! // Entity Creation:
 //! let entity = world.create_entity();
-//!
-//! /*
-//! * Adding Components to Entities:
-//! * You MUST register all components before adding any of them to an Entity,
-//! * failure to do so will result in a panic.
-//! */
-//!
-//! world.register_component::<ExampleComponent>();
 //! world.add_component(entity, example_component);
 //!
-//! // Yoy may remove Components from an Entity via the following:
+//! // You may remove Components from an Entity via the following:
 //! let the_removed_component: Option<Box<dyn Any>> = world.rm_component::<ExampleComponent>(entity);
 //!
 //!```
@@ -188,27 +192,5 @@ mod tests {
         now = Instant::now();
         w.add_component(entity0, TestComponent { val: 42 });
         println!("Time to add component(): {}", now.elapsed().as_nanos());
-    }
-
-    #[test]
-    fn doctest_1() {
-        use super::*;
-    
-        struct ExampleComponent {
-            example_data: usize,
-        }
-
-        let num_entities_estimate: usize = 100;
-        let world = World::new(num_entities_estimate);
-          
-        world.register_component::<ExampleComponent>();
-        
-        let test_component = ExampleComponent { example_data: 7331 };
-        
-        let alt_entity: Entity = world.create_entity();
-        
-        world.add_component(alt_entity, test_component);
-        
-        let the_removed_component: Option<Box<dyn Any>> = world.rm_component::<ExampleComponent>(alt_entity);
     }
 }

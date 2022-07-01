@@ -44,6 +44,7 @@ impl Entities {
         //Panics if ent doesn't exist.
         if let Some(entity_to_rm) = self.active_entities.take(&ent) {
             self.dead_entities.push(entity_to_rm);
+            //TODO: Need to mutate storages corresponding to this EntityID.
             return true;
         }
 
