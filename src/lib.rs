@@ -140,8 +140,6 @@ mod entity;
 mod storage;
 pub mod world;
 
-pub(crate) const MAX_COMPONENTS: usize = 64;
-
 pub(crate) type Entity = usize;
 
 #[cfg(test)]
@@ -149,12 +147,11 @@ mod tests {
 
     //Must run 'cargo test -- --nocapture' to allow printing of time elapsed
 
-    use std::any::Any;
     use super::world::World;
     use std::time::Instant;
 
     struct TestComponent {
-        val: usize,
+        _val: usize,
     }
 
     #[test]
@@ -190,7 +187,7 @@ mod tests {
             println!("Time to init entity: {}", now.elapsed().as_nanos());
         }
         now = Instant::now();
-        w.add_component(entity0, TestComponent { val: 42 });
+        w.add_component(entity0, TestComponent { _val: 42 });
         println!("Time to add component(): {}", now.elapsed().as_nanos());
     }
 }
