@@ -4,7 +4,7 @@
 use std::{
     any::{Any, TypeId}, //TypeId::of<T>() -> TypeId;
     collections::{HashMap, HashSet},
-    sync::{Mutex, MutexGuard},
+    sync::{Arc, Mutex, MutexGuard},
     thread,
     thread::ThreadId,
 };
@@ -17,7 +17,7 @@ use super::{
 
 const STORAGE_POISON: &str = "storages mtx found poisoned in world.rs";
 
-///The root of the library; must instantiate. Provide a non-zero estimate of
+///The core of the library; must instantiate. Provide a non-zero estimate of
 ///the total number of entities you wish to instantiate at any given time.
 ///It's used as the initialization length of Storage vecs.
 ///
@@ -33,7 +33,7 @@ pub struct World {
     pub(crate) entities: Mutex<Entities>,
     mut_guards: Mutex<HashSet<(TypeId, ThreadId)>>, //tracks un-dropped MutableStorageGuards
     immut_guards: Mutex<HashSet<(TypeId, ThreadId)>>, //tracks un-dropped ImmutableStorageGuards
-    storages: Mutex<HashMap<TypeId, Storage>>,
+    storages: Mutex<HashMap<TypeId, Arc<Storage>>>,
 }
 
 impl World {
@@ -92,15 +92,15 @@ impl World {
     }
 
     ///Component types must be registered with the ECS before they are accesed.
-    ///Failing to do so will cause a panic.
-    ///
-    ///# Panics:
-    ///Register each component type only once; registering the same type twice
-    ///will caused a panic.
+    ///Registering the same component type twice will not panic - it simply
+    ///does nothing.
     pub fn register_component<T: 'static + Any>(&self) {
         let type_id = TypeId::of::<T>();
-        let mut storages_guard: MutexGuard<'_, HashMap<TypeId, Storage>> =
-            self.storages.lock().expect(STORAGE_POISON);
+
+        let mut storages_guard: MutexGuard<'_, HashMap<TypeId, Arc<Storage>>> = self
+            .storages
+            .lock()
+            .expect(STORAGE_POISON);
 
         if storages_guard.contains_key(&type_id) {
             //This component has already been registered.
@@ -109,7 +109,7 @@ impl World {
 
         let should_be_none = storages_guard.insert(
             type_id,
-            Storage::new(type_id, self.num_entities_estimate),
+            Arc::new(Storage::new(type_id, self.num_entities_estimate)),
         );
 
         assert!(should_be_none.is_none());
@@ -184,10 +184,11 @@ impl World {
             .get(&type_id)
             .unwrap_or_else(|| {
                 panic!("Attempted to request access to uninitialized component storage");
-            });
+            })
+            .clone();
 
-        let storage_borrows = storage.borrow();
-        ImmutableStorageGuard::new(storage_borrows)
+        storage.init_read_access();
+        ImmutableStorageGuard::new(storage)
     }
 
     ///Use to get thread-safe write-access to a single ECS Storage. If you need
@@ -202,10 +203,11 @@ impl World {
             .get(&type_id)
             .unwrap_or_else(|| {
                 panic!("Attempted to request access to uninitialized component storage");
-            });
+            })
+            .clone();
 
-        let storage_borrows = storage.borrow_mut();
-        MutableStorageGuard::new(storage_borrows.0, storage_borrows.1)
+        storage.init_write_access();
+        MutableStorageGuard::new(storage)
     }
 
     ///Use to getthread-safe read-access to multiple ECS Storages and/or
@@ -222,10 +224,11 @@ impl World {
                 .get(&type_id)
                 .unwrap_or_else(|| {
                     panic!("Attempted to request access to uninitialized component storage");
-                });
+                })
+                .clone();
 
-            let storage_borrows = storage.borrow();
-            guards.push(ImmutableStorageGuard::new(storage_borrows.0, storage_borrows.1));
+            storage.init_read_access();
+            guards.push(ImmutableStorageGuard::new(storage));
         }
 
         guards
@@ -245,10 +248,11 @@ impl World {
                 .get(&type_id)
                 .unwrap_or_else(|| {
                     panic!("Attempted to request access to uninitialized component storage");
-                });
+                })
+                .clone();
 
-            let storage_borrows = storage.borrow_mut();
-            guards.push(MutableStorageGuard::new(storage_borrows.0, storage_borrows.1));
+            storage.init_read_access(); 
+            guards.push(MutableStorageGuard::new(storage));
         }
 
         guards
@@ -257,16 +261,17 @@ impl World {
     ///Used internally during entity initialization.
     fn req_access_while_map_locked<'a>(
         &'a self,
-        storage_map_guard: &'a MutexGuard<'_, HashMap<TypeId, Storage>>,
+        storage_map_guard: &'a MutexGuard<'_, HashMap<TypeId, Arc<Storage>>>,
         type_id: &TypeId,
     ) -> MutableStorageGuard {
         let storage = storage_map_guard
             .get(type_id)
             .unwrap_or_else(|| {
                 panic!("Attempted to request access to uninitialized component storage");
-            });
+            })
+            .clone();
 
-        let storage_borrows = storage.borrow_mut();
-        MutableStorageGuard::new(storage_borrows.0, storage_borrows.1)
+        storage.init_write_access();
+        MutableStorageGuard::new(storage)
     }
 }

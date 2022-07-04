@@ -9,8 +9,6 @@ use std::collections::HashSet;
 
 use super::Entity;
 
-//pub mod builder;
-
 ///Internal; generating, controlling, and  holding unique Entity IDs.
 pub struct Entities {
     //Invariant:

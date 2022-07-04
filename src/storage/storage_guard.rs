@@ -7,9 +7,12 @@
 //------------------------------ Until Dropped --------------------------------
 //-----------------------------------------------------------------------------
 
-use std::any::Any;
+use std::{
+    any::Any,
+    sync::Arc,
+};
 
-use super::Accessor;
+use super::Storage;
 use super::super::Entity;
 
 const USAGE_ERR: &str = "A StorageGuard cannot grant both immutable and mutable access!";
@@ -19,33 +22,35 @@ type InnerStorage = Vec<Option<Box<dyn Any>>>;
 ///These should NOT be held long-term. Do your work then allow this struct to drop, else
 ///you will starve all other threads seeking write-access to the thing this guards.
 #[derive(Debug)]
-pub struct ImmutableStorageGuard<'a> {
-    accessor: &'a Accessor,
-    guarded: &'a Vec<Option<Box<dyn Any>>>,
+pub struct ImmutableStorageGuard {
+    guarded: Arc<Storage>,
 }
 
-impl<'a> ImmutableStorageGuard<'a> {
-    pub(crate) fn new(
-        borrows: Box<(&'a Accessor, &'a Vec<Option<Box<dyn Any>>>)>
-        ) -> Self {
+impl ImmutableStorageGuard {
+    pub(crate) fn new(guarded: Arc<Storage>) -> Self {
 
         ImmutableStorageGuard {
-            accessor: borrows.0,
-            guarded: borrows.1,
+            guarded,
         }
     }
 
     pub fn get(&self, e: Entity) -> &Option<Box<dyn Any>> {
-        &self.guarded[e]
+        &self
+            .guarded
+            .unsafe_borrow()
+            [e]
+            
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &'a Option<Box<dyn Any>>> {
-        self.guarded.iter()
+    pub fn iter(&self) -> impl Iterator<Item = &Option<Box<dyn Any>>> {
+        self.guarded
+            .unsafe_borrow()
+            .iter()
     }
 
     ///Favor using iter() or get() if at all possible.
-    pub fn raw(&self) -> &'a Vec<Option<Box<dyn Any>>> {
-        self.guarded
+    pub fn raw(&self) -> &Vec<Option<Box<dyn Any>>> {
+        self.guarded.unsafe_borrow()
     }
 }
 
@@ -53,32 +58,34 @@ impl<'a> ImmutableStorageGuard<'a> {
 ///These should NOT be held long-term. Do your work then allow this struct to drop, else
 ///you will starve all other threads seeking write-access to the thing this guards.
 #[derive(Debug)]
-pub struct MutableStorageGuard<'a> {
-    accessor: &'a Accessor,
-    guarded: &'a mut Vec<Option<Box<dyn Any>>>,
+pub struct MutableStorageGuard {
+    guarded: Arc<Storage>,
 }
 
-impl<'a> MutableStorageGuard<'a> {
-    pub(crate) fn new(
-        accessor: &'a Accessor,
-        to_guard: &'a mut Vec<Option<Box<dyn Any>>>) -> Self {
+impl MutableStorageGuard {
+    pub(crate) fn new(guarded: Arc<Storage>) -> Self {
 
         MutableStorageGuard { 
-            accessor,
-            guarded: to_guard
+            guarded,
         }
     }
 
-    pub fn get_mut(&self, e: Entity) -> &Option<Box<dyn Any>> {
-        &mut self.guarded[e]
+    pub fn get_mut(&self, e: Entity) -> &mut Option<Box<dyn Any>> {
+        &mut self
+            .guarded
+            .unsafe_borrow_mut()
+            [e]
     }
 
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Option<Box<dyn Any>>> {
-        self.guarded.iter_mut()
+        self
+            .guarded
+            .unsafe_borrow_mut()
+            .iter_mut()
     }
 
     pub fn raw_mut(&self) -> &mut Vec<Option<Box<dyn Any>>> {
-        self.guarded
+        self.guarded.unsafe_borrow_mut()
     }
 }
 
@@ -97,9 +104,10 @@ impl<'a> MutableStorageGuard<'a> {
 ///NOTE: This implementation does NOT guarantee that all readers will read the
 ///result of every write. Many sequential writes may occur without any reads
 ///in-between.
-impl<'a> Drop for ImmutableStorageGuard<'a> {
+impl Drop for ImmutableStorageGuard {
     fn drop(&mut self) {
         let mut accessor_state = self
+            .guarded
             .accessor
             .mtx
             .lock()
@@ -129,16 +137,17 @@ impl<'a> Drop for ImmutableStorageGuard<'a> {
 
         //Writer prioritization:
         if accessor_state.writers_waiting > 0 {
-            self.accessor.writer_cvar.notify_one();
+            self.guarded.accessor.writer_cvar.notify_one();
         } else {
-            self.accessor.reader_cvar.notify_all();
+            self.guarded.accessor.reader_cvar.notify_all();
         }
     }
 }
 
-impl<'a> Drop for MutableStorageGuard<'a> {
+impl Drop for MutableStorageGuard {
     fn drop(&mut self) {
             let mut accessor_state = self
+            .guarded
             .accessor
             .mtx
             .lock()
@@ -151,9 +160,9 @@ impl<'a> Drop for MutableStorageGuard<'a> {
 
         //Writer prioritization:
         if accessor_state.writers_waiting > 0 {
-            self.accessor.writer_cvar.notify_one();
+            self.guarded.accessor.writer_cvar.notify_one();
         } else {
-            self.accessor.reader_cvar.notify_all();
+            self.guarded.accessor.reader_cvar.notify_all();
         }
     }
 }

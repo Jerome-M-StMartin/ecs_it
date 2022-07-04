@@ -92,47 +92,56 @@
 //!     example_data: usize,
 //! }
 //!
-//! let world = world::World::new(100);
+//! let world = world::World::new(101);
 //! world.register_component::<ExampleComponent>();
+//! let my_entity = world.create_entity();
 //!
 //! /*
-//! There are only two functions you need to know in order to gain either
-//! immutable or mutable access to any given Storage, which will return a vector
-//! over all the Components that currently exist attached to some Entity. The
-//! index of any given Component in the Vec matches the Entity ID of its parent
-//! Entity.
+//! First, via req_read_guard() or req_write_guard():
+//! Grab a StorageGuard from the ECS. Requesting either type of StorageGuard
+//! is a BLOCKING call, which allows only one exclusive MutableStorageGuard or
+//! many ImmutableStorageGuards to exist at any given time.
 //! */
 //!
 //! /*
-//! Grab a StorageGuard from the ECS. The interface for this object allows
-//! thread-safe concurrent access to its underlying storage in a BLOCKING
-//! manner.
+//! For immutable access you can call one of the following methods implemented
+//! on ImmutableStorageGuards:
+//!     get(e: Entity)
+//!     iter()
+//!     raw()
 //! */
-//!
-//! //For immutable access you call .val() on a StorageGuard.
 //! {
-//!     let storage_guard = world.req_access::<ExampleComponent>();
-//!     let storage: &Vec<Option<Box<dyn Any>>> = storage_guard.val();
+//!     let storage_guard = world.req_read_guard::<ExampleComponent>();
+//!     let storage: &Vec<Option<Box<dyn Any>>> = storage_guard.raw();
+//!     let a_component: &Option<Box<dyn Any>> = storage_guard.get(my_entity);
+//!     let component_iter = storage_guard.iter();
 //! }
 //!
-//! //For mutable access do you call .val_mut() on a StorageGuard.
+//! /*
+//! For mutable access you can call one of the following methods implemented
+//! on MutableStorageGuards:
+//!     get_mut(e: Entity)
+//!     iter_mut()
+//!     raw_mut()
+//! */
 //! {
-//!     let storage_guard = world.req_access::<ExampleComponent>();
-//!     let storage: &mut Vec<Option<Box<dyn Any>>> = storage_guard.val_mut();
+//!     let mut storage_guard = world.req_write_guard::<ExampleComponent>();
+//!     let storage: &mut Vec<Option<Box<dyn Any>>> = storage_guard.raw_mut();
+//!     let a_component: &mut Option<Box<dyn Any>> = storage_guard.get_mut(my_entity);
+//!     let component_iter_mut = storage_guard.iter_mut();
 //! }
 //!         
 //! /*
-//! The scoping brackets used above are to force the StorageGuard to be dropped.
-//! This is how the crate ensures safe concurrent access to Storages. As long as
-//! a StorageGuard exists that has granted mutable access, no other StorageGuard
-//! will grant any access. If a StorageGuard exists that has granted immutable
-//! access, any number of other StorageGuards will also grant immutable access,
-//! but none will grant mutable access.
+//! The scoping brackets used above are to force StorageGuards to be dropped.
+//! This is how the crate ensures safe concurrent access to Storages -- you
+//! can only instantiate *StorageGuards if there are no MutableStorageGuards
+//! already existing for a given Storage. You can instantiate any number of
+//! ImmutableStorageGuards for the same Storage if and only if there are no
+//! MutableStorageGuards already.
 //!
 //! Because of this, you never have to worry about keeping track of what access
 //! was granted where -- simply drop StorageGuards when you no longer need
-//! access to that storage (either manually or by simply allowing the guard to
-//! fall out of scope).
+//! access to that storage (by simply allowing the guard to fall out of scope).
 //! */
 //!```
 

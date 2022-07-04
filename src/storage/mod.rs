@@ -20,9 +20,9 @@ pub use storage_guard::{ImmutableStorageGuard, MutableStorageGuard};
 ///mutable and immutable access to said storage.
 #[derive(Debug)]
 pub(crate) struct Storage {
-    pub(crate) component_type: TypeId,
-    pub(crate) accessor: Accessor,
-    pub(crate) inner: UnsafeCell<Vec<Option<Box<dyn Any>>>>,
+    component_type: TypeId,
+    accessor: Accessor,
+    inner: UnsafeCell<Vec<Option<Box<dyn Any>>>>,
 }
 
 impl Storage {
@@ -37,7 +37,7 @@ impl Storage {
         }
     }
 
-    pub(super) fn borrow(&self) -> Box<(&Accessor, &Vec<Option<Box<dyn Any>>>)> {
+    pub(super) fn init_read_access(&self) {
         const READ_ERR_MSG: &str = "Accessor mtx found poisoned";
 
         //While write access is NOT allowed, wait until the calling thread is
@@ -56,13 +56,10 @@ impl Storage {
         accessor_state.write_allowed = false;
         accessor_state.readers += 1;
 
-        let storage_borrow = unsafe { &*self.inner.get() };
-        let accessor_borrow = &self.accessor;
-
-        Box::new((accessor_borrow, storage_borrow))
+        //let storage_borrow = unsafe { &*self.inner.get() };
     }
 
-    pub(super) fn borrow_mut(&self) -> (&Accessor, &mut Vec<Option<Box<dyn Any>>>) {
+    pub(super) fn init_write_access(&self) {
         const WRITE_ERR_MSG: &str = "Accessor mtx found poisoned in StorageGuard.val_mut().";
 
         let mut accessor_state: std::sync::MutexGuard<'_, AccessorState> =
@@ -86,9 +83,14 @@ impl Storage {
         accessor_state.write_allowed = false;
         accessor_state.writers_waiting -= 1;
 
-        let storage_borrow = unsafe { &mut *self.inner.get() };
-        let accessor_borrow = &self.accessor;
+        //let storage_borrow = unsafe { &mut *self.inner.get() };
+    }
 
-        (accessor_borrow, storage_borrow)
+    pub(super) fn unsafe_borrow(&self) -> &Vec<Option<Box<dyn Any>>> {
+        unsafe { &*self.inner.get() }
+    }
+
+    pub(super) fn unsafe_borrow_mut(&self) -> &mut Vec<Option<Box<dyn Any>>> {
+        unsafe { &mut *self.inner.get() }
     }
 }
