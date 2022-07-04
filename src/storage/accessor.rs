@@ -16,10 +16,10 @@ use std::{
 ///Used internally to guarantee safe concurrent access to Storages.
 #[derive(Debug)]
 pub struct Accessor {
-    pub(super) type_id: TypeId,
-    pub(super) mtx: Mutex<AccessorState>,
-    pub(super) reader_cvar: Condvar,
-    pub(super) writer_cvar: Condvar,
+    pub(crate) type_id: TypeId,
+    pub(crate) mtx: Mutex<AccessorState>,
+    pub(crate) reader_cvar: Condvar,
+    pub(crate) writer_cvar: Condvar,
 }
 
 impl Accessor {
@@ -40,7 +40,7 @@ impl Accessor {
 
 ///Internal to Accessor structs.
 #[derive(Debug)]
-pub(super) struct AccessorState {
+pub struct AccessorState {
     pub readers: u16, // num of currently reading readers, NOT waiting/slept readers
     pub read_allowed: bool,
     pub write_allowed: bool,

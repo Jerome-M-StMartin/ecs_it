@@ -140,7 +140,7 @@ mod entity;
 mod storage;
 pub mod world;
 
-pub(crate) type Entity = usize;
+pub type Entity = usize;
 
 #[cfg(test)]
 mod tests {

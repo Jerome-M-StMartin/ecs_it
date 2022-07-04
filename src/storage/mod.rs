@@ -10,10 +10,10 @@ use std::{
     cell::UnsafeCell,
 };
 
-mod accessor;
-mod storage_guard;
+pub(crate) mod accessor;
+pub(crate) mod storage_guard;
 
-use accessor::{Accessor, AccessorState};
+pub use accessor::{Accessor, AccessorState};
 pub use storage_guard::{ImmutableStorageGuard, MutableStorageGuard};
 
 ///Used internally to store components of a single type, ant to control both
@@ -21,9 +21,8 @@ pub use storage_guard::{ImmutableStorageGuard, MutableStorageGuard};
 #[derive(Debug)]
 pub(crate) struct Storage {
     pub(crate) component_type: TypeId,
-    accessor: Accessor,
-    //Deref inner's UnsafeCell IF AND ONLY IF you hold an AccessGuard granted by this Accessor.
-    inner: UnsafeCell<Vec<Option<Box<dyn Any>>>>,
+    pub(crate) accessor: Accessor,
+    pub(crate) inner: UnsafeCell<Vec<Option<Box<dyn Any>>>>,
 }
 
 impl Storage {
@@ -38,8 +37,8 @@ impl Storage {
         }
     }
 
-    pub(super) fn access_inner(&self) -> &Vec<Option<Box<dyn Any>>> {
-        const READ_ERR_MSG: &str = "Accessor mtx found poisoned in StorageGuard.val().";
+    pub(super) fn borrow(&self) -> Box<(&Accessor, &Vec<Option<Box<dyn Any>>>)> {
+        const READ_ERR_MSG: &str = "Accessor mtx found poisoned";
 
         //While write access is NOT allowed, wait until the calling thread is
         //notified on the condvar. Once the condvar is notified, the calling
@@ -57,10 +56,13 @@ impl Storage {
         accessor_state.write_allowed = false;
         accessor_state.readers += 1;
 
-        unsafe { &*self.inner.get() }
+        let storage_borrow = unsafe { &*self.inner.get() };
+        let accessor_borrow = &self.accessor;
+
+        Box::new((accessor_borrow, storage_borrow))
     }
 
-    pub(super) fn access_inner_mut(&self) -> &mut Vec<Option<Box<dyn Any>>> {
+    pub(super) fn borrow_mut(&self) -> (&Accessor, &mut Vec<Option<Box<dyn Any>>>) {
         const WRITE_ERR_MSG: &str = "Accessor mtx found poisoned in StorageGuard.val_mut().";
 
         let mut accessor_state: std::sync::MutexGuard<'_, AccessorState> =
@@ -84,6 +86,9 @@ impl Storage {
         accessor_state.write_allowed = false;
         accessor_state.writers_waiting -= 1;
 
-        unsafe { &mut *self.inner.get() }
+        let storage_borrow = unsafe { &mut *self.inner.get() };
+        let accessor_borrow = &self.accessor;
+
+        (accessor_borrow, storage_borrow)
     }
 }

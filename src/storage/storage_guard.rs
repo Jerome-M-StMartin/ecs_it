@@ -7,12 +7,9 @@
 //------------------------------ Until Dropped --------------------------------
 //-----------------------------------------------------------------------------
 
-use std::{
-    any::Any,
-    sync::Arc,
-};
+use std::any::Any;
 
-use super::Storage;
+use super::Accessor;
 use super::super::Entity;
 
 const USAGE_ERR: &str = "A StorageGuard cannot grant both immutable and mutable access!";
@@ -22,30 +19,33 @@ type InnerStorage = Vec<Option<Box<dyn Any>>>;
 ///These should NOT be held long-term. Do your work then allow this struct to drop, else
 ///you will starve all other threads seeking write-access to the thing this guards.
 #[derive(Debug)]
-pub struct ImmutableStorageGuard {
-    storage: Arc<Storage>,
+pub struct ImmutableStorageGuard<'a> {
+    accessor: &'a Accessor,
+    guarded: &'a Vec<Option<Box<dyn Any>>>,
 }
 
-impl ImmutableStorageGuard {
-    pub(crate) fn new(storage: Arc<Storage>) -> Self {
+impl<'a> ImmutableStorageGuard<'a> {
+    pub(crate) fn new(
+        borrows: Box<(&'a Accessor, &'a Vec<Option<Box<dyn Any>>>)>
+        ) -> Self {
+
         ImmutableStorageGuard {
-            storage
+            accessor: borrows.0,
+            guarded: borrows.1,
         }
     }
 
     pub fn get(&self, e: Entity) -> &Option<Box<dyn Any>> {
-        let raw_storage_borrow = self.storage.access_inner();
-        &raw_storage_borrow[e]
+        &self.guarded[e]
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &Option<Box<dyn Any>>> {
-        let raw_storage_borrow = self.storage.access_inner();
-        raw_storage_borrow.iter()
+    pub fn iter(&self) -> impl Iterator<Item = &'a Option<Box<dyn Any>>> {
+        self.guarded.iter()
     }
 
     ///Favor using iter() or get() if at all possible.
-    pub fn raw(&self) -> &Vec<Option<Box<dyn Any>>> {
-        self.storage.access_inner()
+    pub fn raw(&self) -> &'a Vec<Option<Box<dyn Any>>> {
+        self.guarded
     }
 }
 
@@ -53,49 +53,53 @@ impl ImmutableStorageGuard {
 ///These should NOT be held long-term. Do your work then allow this struct to drop, else
 ///you will starve all other threads seeking write-access to the thing this guards.
 #[derive(Debug)]
-pub struct MutableStorageGuard {
-    storage: Arc<Storage>,
+pub struct MutableStorageGuard<'a> {
+    accessor: &'a Accessor,
+    guarded: &'a mut Vec<Option<Box<dyn Any>>>,
 }
 
-impl MutableStorageGuard {
-    pub(crate) fn new(storage: Arc<Storage>) -> Self {
-        MutableStorageGuard { storage }
+impl<'a> MutableStorageGuard<'a> {
+    pub(crate) fn new(
+        accessor: &'a Accessor,
+        to_guard: &'a mut Vec<Option<Box<dyn Any>>>) -> Self {
+
+        MutableStorageGuard { 
+            accessor,
+            guarded: to_guard
+        }
     }
 
     pub fn get_mut(&self, e: Entity) -> &Option<Box<dyn Any>> {
-        let raw_storage_mut_borrow = self.storage.access_inner_mut();
-        &mut raw_storage_mut_borrow[e]
+        &mut self.guarded[e]
     }
 
-    pub fn iter_mut(&self) -> impl Iterator<Item = &mut Option<Box<dyn Any>>> {
-        let raw_storage_mut_borrow = self.storage.access_inner_mut();
-        raw_storage_mut_borrow.iter_mut()
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Option<Box<dyn Any>>> {
+        self.guarded.iter_mut()
     }
 
     pub fn raw_mut(&self) -> &mut Vec<Option<Box<dyn Any>>> {
-        self.storage.access_inner_mut()
+        self.guarded
     }
 }
 
 ///Writer-Prioritized Concurrent Access:
 ///
-///These implementations of Drop for Immutable/MutableStorageGuards is half of
+///Implementations of Drop for Immutable/MutableStorageGuards are half of
 ///the implementation of the above goal.
 ///
 ///This implementation should, assuming my logic is sound and correctly
 ///implemented, eliminate the possibility of starvation for writers. Readers,
 ///on the other hand, can VERY EASILY be starved if writers are continuously
 ///requesting access. This is an intentional trade-off: the use case for this
-///ECS is turn-based video games, where reads for rendering purposes occur
-///every tick, but writes occur only corresponding with user input.
+///ECS is turn-based video games, where reads occur every tick, but writes
+///occur only corresponding with user input.
 ///
 ///NOTE: This implementation does NOT guarantee that all readers will read the
 ///result of every write. Many sequential writes may occur without any reads
 ///in-between.
-impl Drop for ImmutableStorageGuard {
+impl<'a> Drop for ImmutableStorageGuard<'a> {
     fn drop(&mut self) {
         let mut accessor_state = self
-            .storage
             .accessor
             .mtx
             .lock()
@@ -125,17 +129,16 @@ impl Drop for ImmutableStorageGuard {
 
         //Writer prioritization:
         if accessor_state.writers_waiting > 0 {
-            self.storage.accessor.writer_cvar.notify_one();
+            self.accessor.writer_cvar.notify_one();
         } else {
-            self.storage.accessor.reader_cvar.notify_all();
+            self.accessor.reader_cvar.notify_all();
         }
     }
 }
 
-impl Drop for MutableStorageGuard {
+impl<'a> Drop for MutableStorageGuard<'a> {
     fn drop(&mut self) {
             let mut accessor_state = self
-            .storage
             .accessor
             .mtx
             .lock()
@@ -148,9 +151,9 @@ impl Drop for MutableStorageGuard {
 
         //Writer prioritization:
         if accessor_state.writers_waiting > 0 {
-            self.storage.accessor.writer_cvar.notify_one();
+            self.accessor.writer_cvar.notify_one();
         } else {
-            self.storage.accessor.reader_cvar.notify_all();
+            self.accessor.reader_cvar.notify_all();
         }
     }
 }

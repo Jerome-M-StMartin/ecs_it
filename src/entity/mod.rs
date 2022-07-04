@@ -45,10 +45,22 @@ impl Entities {
         if let Some(entity_to_rm) = self.active_entities.take(&ent) {
             self.dead_entities.push(entity_to_rm);
             //TODO: Need to mutate storages corresponding to this EntityID.
+
             return true;
         }
 
         false
+    }
+
+    pub(crate) fn vec(&self) -> Vec<Entity> {
+        let mut vec = Vec::with_capacity(self.active_entities.len());
+        let iter = self.active_entities.iter();
+        
+        for ent in iter {
+            vec.push(ent.clone());
+        }
+
+        vec
     }
 
     fn get_next_id(&mut self) -> Entity {
