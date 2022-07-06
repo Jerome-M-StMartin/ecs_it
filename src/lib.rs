@@ -164,9 +164,7 @@ mod tests {
     }
 
     #[test]
-    fn create_raw_entity() {
-        let now = Instant::now();
-
+    fn entity_tests() {
         let w = World::new(3);
         let entity0: usize = w.create_entity();
         let entity1: usize = w.create_entity();
@@ -176,10 +174,9 @@ mod tests {
         assert_eq!(entity1, 1);
         assert_eq!(entity2, 2);
 
-        println!(
-            "Time Elapsed during create_raw_entity(): {}",
-            now.elapsed().as_nanos()
-        );
+        for (i, ent) in w.entity_iter().enumerate() {
+            println!("i: {}, ent: {}", i, ent);
+        }
     }
 
     #[test]

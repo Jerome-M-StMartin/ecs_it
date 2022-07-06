@@ -55,8 +55,6 @@ impl Storage {
 
         accessor_state.write_allowed = false;
         accessor_state.readers += 1;
-
-        //let storage_borrow = unsafe { &*self.inner.get() };
     }
 
     pub(super) fn init_write_access(&self) {
@@ -82,8 +80,6 @@ impl Storage {
         accessor_state.read_allowed = false;
         accessor_state.write_allowed = false;
         accessor_state.writers_waiting -= 1;
-
-        //let storage_borrow = unsafe { &mut *self.inner.get() };
     }
 
     pub(super) fn unsafe_borrow(&self) -> &Vec<Option<Box<dyn Any>>> {

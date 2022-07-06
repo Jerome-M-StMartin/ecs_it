@@ -3,10 +3,8 @@
 
 use std::{
     any::{Any, TypeId}, //TypeId::of<T>() -> TypeId;
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     sync::{Arc, Mutex, MutexGuard},
-    thread,
-    thread::ThreadId,
 };
 
 use super::{
@@ -17,34 +15,32 @@ use super::{
 
 const STORAGE_POISON: &str = "storages mtx found poisoned in world.rs";
 
-///The core of the library; must instantiate. Provide a non-zero estimate of
-///the total number of entities you wish to instantiate at any given time.
-///It's used as the initialization length of Storage vecs.
-///
-///This estimate should probably not exceed a few thousand - if you need an
-///ECS that can handle that volume in a performant manner I suggest 'specs',
-///which provides mutliple underlying storage types, while this library uses
-///only Vecs. So, for example, if you have a component associated with only
-///a few Entities, say one Entity, but have 1,000 living Entities, there will
-///exist a Vec with 999 'None' elements and 1 'Some' element.
+///The core of the library; must instantiate.
+
 pub struct World {
     //Arc<World>
     pub(crate) num_entities_estimate: usize, //used as init size for Storage vecs
     pub(crate) entities: Mutex<Entities>,
-    mut_guards: Mutex<HashSet<(TypeId, ThreadId)>>, //tracks un-dropped MutableStorageGuards
-    immut_guards: Mutex<HashSet<(TypeId, ThreadId)>>, //tracks un-dropped ImmutableStorageGuards
     storages: Mutex<HashMap<TypeId, Arc<Storage>>>,
 }
 
 impl World {
+    /// Provide a non-zero estimate of the total number of entities you wish to
+    /// instantiate at any given time. It's used as the initialization length
+    /// of Storage vecs.
+    ///
+    ///This estimate should probably not exceed a few thousand - if you need an
+    ///ECS that can handle that volume in a performant manner I suggest 'specs',
+    ///which provides mutliple underlying storage types, while this library uses
+    ///only Vecs. So, for example, if you have a component associated with only
+    ///a few Entities, say one Entity, but have 1,000 living Entities, there
+    ///will exist a Vec with 999 'None' elements and 1 'Some' element.
     pub fn new(num_entities_estimate: usize) -> Self {
         assert!(num_entities_estimate > 0); //should also prob. not exceed ~10,000
 
         World {
             num_entities_estimate,
             entities: Mutex::new(Entities::new()),
-            mut_guards: Mutex::new(HashSet::new()),
-            immut_guards: Mutex::new(HashSet::new()),
             storages: Mutex::new(HashMap::new()),
         }
     }
@@ -78,22 +74,39 @@ impl World {
         id
     }
 
-    ///Clones all existing Entities into an UNSORTED Vec, then returns an
-    ///iterator over that Vec; does not consume the underlying data structure.
+    /// Clones all existing Entities into an UNSORTED Vec, then returns an
+    /// iterator over that Vec; does not consume the underlying data structure.
     ///
-    ///Reminder: an Entity is just a usize - nothing more.
+    /// Reminder: an Entity is just a usize - nothing more.
+    ///
+    ///# Example
+    ///```
+    /// use ecs_it::world::World;
+    ///
+    /// let world = World::new(5);
+    ///
+    /// for _ in 0..5 {
+    ///     world.create_entity();
+    /// }
+    ///
+    /// for (i, ent) in world.entity_iter().enumerate() {
+    ///     println!("i: {}, entity: {}", i, ent);
+    /// }
+    ///```
     pub fn entity_iter(&self) -> impl Iterator<Item = Entity> {
-        let mtx_guard: MutexGuard<Entities> = self
+        let entities_guard: MutexGuard<Entities> = self
             .entities
             .lock()
             .expect("Entities mtx found poisoned in world.rs");
         
-        mtx_guard.vec().into_iter()
+        entities_guard.vec().into_iter()
     }
 
-    ///Component types must be registered with the ECS before they are accesed.
-    ///Registering the same component type twice will not panic - it simply
-    ///does nothing.
+    ///Component types must be registered with the ECS before they are accessed.
+    ///
+    /// ## Panics
+    ///
+    /// Panics if you register the same component type twice.
     pub fn register_component<T: 'static + Any>(&self) {
         let type_id = TypeId::of::<T>();
 
@@ -103,8 +116,7 @@ impl World {
             .expect(STORAGE_POISON);
 
         if storages_guard.contains_key(&type_id) {
-            //This component has already been registered.
-            return;
+            panic!("attempted to register the same component type twice");
         }
 
         let should_be_none = storages_guard.insert(
@@ -115,15 +127,13 @@ impl World {
         assert!(should_be_none.is_none());
     }
 
-    ///Adds a component of type T, which must be Any, to the passed-in entity.
-    ///The component's storage is lazily initialized herein, so this can be
-    ///the first time the ECS learns about this component type without causing
-    ///any issue.
+    ///Adds a component of type T to the passed-in entity, replaces and returns
+    ///the T that was already here, if any.
     ///
     ///Note: In the case that the passed-in entity has an existing component
     ///of this type, this does NOT re-allocate memory. The new component is
-    ///placed into the old component's box. :]
-    pub fn add_component<T: 'static + Any>(&self, ent: Entity, comp: T) {
+    ///placed into the old component's Box<>.
+    pub fn add_component<T: 'static + Any>(&self, ent: Entity, comp: T) -> Option<T> {
         let guard = self.req_write_guard::<T>(); //This may block.
 
         let storage: &mut Vec<Option<Box<dyn Any>>> = guard.raw_mut();
@@ -134,10 +144,13 @@ impl World {
         if entity_slot.is_some() {
             let mut box_to_reuse: Box<dyn Any> = entity_slot.take().unwrap();
             let old_comp: &mut T = &mut *box_to_reuse.downcast_mut::<T>().unwrap();
-            let _: T = std::mem::replace(old_comp, comp); //old_comp is discarded
+            let old_comp_raw: T = std::mem::replace(old_comp, comp); //old_comp is discarded
             let _: &mut Box<dyn Any + 'static> = entity_slot.insert(box_to_reuse);
+            
+            Some(old_comp_raw)
         } else {
             let _ = entity_slot.insert(Box::new(comp));
+            None
         }
     }
 
@@ -154,27 +167,30 @@ impl World {
 
     ///Use to get thread-safe read-access to a single ECS Storage. If you need
     ///access to multiple Storages, prefer req_multi_read_guards.
-    ///# Panics:
-    ///This function panics if you attempt to use it in a way that guarantees
-    ///a deadlock situation. You must not request access to a Storage for
-    ///which you currently have mutable access in the same thread.
+    ///## Panics
+    ///Panics if you call on an unregistered Component type, T.
     pub fn req_read_guard<T: 'static + Any>(&self) -> ImmutableStorageGuard {
         let type_id = TypeId::of::<T>();
 
-        //Panic if this thread holds a write-lock on the requested storage,
-        //because if we don't we guarantee a deadlock.
-        let thread_id = thread::current().id();
-        let mut_guards = self
-            .mut_guards
+        //Request an ImmutableStorageGuard; blocks until read-access is allowed.
+        let storage = self
+            .storages
             .lock()
-            .expect("immut_guards mtx found poisoned in world.rs");
+            .expect(STORAGE_POISON)
+            .get(&type_id)
+            .unwrap_or_else(|| {
+                panic!("Attempted to request access to unregistered component storage");
+            })
+            .clone();
 
-        let should_be_none = mut_guards.get(&(type_id, thread_id));
-        if should_be_none.is_some() {
-            panic!("You've guaranteed a deadlock by attemping to acquire
-                    a lock within a thread that already holds that same
-                    lock in an exclusive (i.e. mutable) way.");
-        }
+        storage.init_read_access();
+        ImmutableStorageGuard::new(storage)
+    }
+
+    ///Similar to req_read_guard() but returns Some(ImmutableStorageGuard) only
+    ///if the passed in Entity has a Component of type T. Else returns None.
+    pub fn req_read_guard_if<T: 'static + Any>(&self, ent: Entity) -> Option<ImmutableStorageGuard> {
+        let type_id = TypeId::of::<T>();
 
         //Request an ImmutableStorageGuard; blocks until read-access is allowed.
         let storage = self
@@ -186,13 +202,24 @@ impl World {
                 panic!("Attempted to request access to uninitialized component storage");
             })
             .clone();
+        
+        {
+            storage.init_read_access();
+            let guard = ImmutableStorageGuard::new(storage);
 
-        storage.init_read_access();
-        ImmutableStorageGuard::new(storage)
+            if guard.get(ent).is_some() {
+                return Some(guard)
+            }
+        }
+
+        None
     }
 
     ///Use to get thread-safe write-access to a single ECS Storage. If you need
     ///access to multiple Storages, prefer req_multi_write_guards().
+    ///
+    /// ## Panics
+    /// Panics if you call on an unregistered Component type, T.
     pub fn req_write_guard<T: 'static + Any>(&self) -> MutableStorageGuard {
         let type_id = TypeId::of::<T>();
 
@@ -208,6 +235,33 @@ impl World {
 
         storage.init_write_access();
         MutableStorageGuard::new(storage)
+    }
+
+    ///Similar to req_write_guard() but returns Some(MutableStorageGuard) if
+    ///the passed-in Entity has a Component of type T. Else returns None.
+    pub fn req_write_guard_if<T: 'static + Any>(&self, ent: Entity) -> Option<MutableStorageGuard> {
+        let type_id = TypeId::of::<T>();
+
+        let storage = self
+            .storages
+            .lock()
+            .expect(STORAGE_POISON)
+            .get(&type_id)
+            .unwrap_or_else(|| {
+                panic!("Attempted to request access to uninitialized component storage");
+            })
+            .clone();
+        
+        {
+            storage.init_write_access();
+            let guard = MutableStorageGuard::new(storage);
+
+            if guard.get_mut(ent).is_some() {
+                return Some(guard)
+            }
+        }
+
+        None
     }
 
     ///Use to getthread-safe read-access to multiple ECS Storages and/or
