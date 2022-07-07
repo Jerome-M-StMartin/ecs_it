@@ -1,14 +1,16 @@
 //Jerome M. St.Martin
-//June 21, 2020
+//June 21, 2022
 
 //-----------------------------------------------------------------------------
 //-------------------------- ECS Component Storages ---------------------------
 //-----------------------------------------------------------------------------
 
 use std::{
-    any::{Any, TypeId},
+    any::TypeId,
     cell::UnsafeCell,
 };
+
+use super::Component;
 
 pub(crate) mod accessor;
 pub(crate) mod storage_guard;
@@ -16,16 +18,19 @@ pub(crate) mod storage_guard;
 pub use accessor::{Accessor, AccessorState};
 pub use storage_guard::{ImmutableStorageGuard, MutableStorageGuard};
 
+
 ///Used internally to store components of a single type, ant to control both
 ///mutable and immutable access to said storage.
 #[derive(Debug)]
-pub(crate) struct Storage {
+pub(crate) struct Storage<T: Component> {
     component_type: TypeId,
     accessor: Accessor,
-    inner: UnsafeCell<Vec<Option<Box<dyn Any>>>>,
+    inner: UnsafeCell<Vec<Option<T>>>,
 }
 
-impl Storage {
+unsafe impl<T> Sync for Storage<T> where T: Component {}
+
+impl<T> Storage<T> where T: Component {
     pub(crate) fn new(component_type: TypeId, num_ents_estimate: usize) -> Self {
         let mut new_vec = Vec::with_capacity(num_ents_estimate);
         new_vec.fill_with(|| None);
@@ -82,11 +87,11 @@ impl Storage {
         accessor_state.writers_waiting -= 1;
     }
 
-    pub(super) fn unsafe_borrow(&self) -> &Vec<Option<Box<dyn Any>>> {
+    pub(super) fn unsafe_borrow(&self) -> &Vec<Option<T>> {
         unsafe { &*self.inner.get() }
     }
 
-    pub(super) fn unsafe_borrow_mut(&self) -> &mut Vec<Option<Box<dyn Any>>> {
+    pub(super) fn unsafe_borrow_mut(&self) -> &mut Vec<Option<T>> {
         unsafe { &mut *self.inner.get() }
     }
 }

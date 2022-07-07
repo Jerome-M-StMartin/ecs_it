@@ -145,11 +145,15 @@
 //! */
 //!```
 
+use std::any::Any;
+
 mod entity;
 mod storage;
 pub mod world;
 
 pub type Entity = usize;
+
+pub trait Component: Any + Sized + Send + Sync {}
 
 #[cfg(test)]
 mod tests {
