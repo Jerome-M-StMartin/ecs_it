@@ -2,45 +2,31 @@
 //June 15, 2022
 
 use std::{
-    any::{Any, TypeId}, //TypeId::of<T>() -> TypeId;
+    any::TypeId, //TypeId::of<T>() -> TypeId;
     collections::HashMap,
     sync::{Arc, Mutex, MutexGuard},
 };
 
 use super::{
     entity::Entities,
-    storage::{Storage, ImmutableStorageGuard, MutableStorageGuard},
+    storage::{
+        Storage,
+        StorageBox,
+        ImmutableStorageGuard,
+        MutableStorageGuard
+    },
     Entity, //usize
     Component,
 };
 
 const STORAGE_POISON: &str = "storages mtx found poisoned in world.rs";
 
-//Main Purpose: Allow generics on Storages without forcing generics on World.
-struct Resource {
-    data: Arc<dyn Any + Send + Sync + 'static>,
-}
-
-impl Resource {
-    fn concrete_clone<T: 'static + Any + Send + Sync>(&self) -> Arc<T> {
-        self
-            .data
-            .clone()
-            .downcast::<T>()
-            .unwrap_or_else(|e| { panic!("{:?}", e); })
-    }
-
-    fn dyn_clone(&self) -> Arc<dyn Any + Send + Sync + 'static> {
-        self.data.clone()
-    }
-}
-
 ///The core of the library; must instantiate.
 pub struct World {
     //Arc<World>
     pub(crate) num_entities_estimate: usize, //used as init size for Storage vecs
     pub(crate) entities: Mutex<Entities>,
-    storages: Mutex<HashMap<TypeId, Resource>>,
+    storages: Mutex<HashMap<TypeId, StorageBox>>,
 }
 
 impl World {
@@ -65,34 +51,11 @@ impl World {
     }
 
     pub fn create_entity(&self) -> Entity {
-        self.init_entity()
-    }
-
-    //TODO: FIX; can't know T while iterating the storage map keys...
-    pub(crate) fn init_entity(&self) -> Entity {
         let id = self
             .entities
             .lock()
             .expect("entities mtx found poisoned in World::init_entity()")
             .new_entity_id();
-
-        let storage_map_guard = self
-            .storages
-            .lock()
-            .expect(STORAGE_POISON);
-
-        let storage_map_keys = storage_map_guard.keys();
-
-        //Increase the length of all Storage vectors in ecs.storages
-        for type_id in storage_map_keys {
-            let storage_guard = self.req_access_while_map_locked(&storage_map_guard, type_id);
-            let storage = storage_guard.raw_mut();
-
-            //Now that we have write access to this storage,
-            //increase its length by 1, so the new Entity
-            //MAY have a component placed here.
-            storage.push(None);
-        }
 
         id
     }
@@ -133,7 +96,7 @@ impl World {
     pub fn register_component<T: Component>(&self) {
         let type_id = TypeId::of::<T>();
 
-        let mut storages_guard: MutexGuard<'_, HashMap<TypeId, Resource>> = self
+        let mut storages_guard: MutexGuard<'_, HashMap<TypeId, StorageBox>> = self
             .storages
             .lock()
             .expect(STORAGE_POISON);
@@ -144,8 +107,8 @@ impl World {
 
         let should_be_none = storages_guard.insert(
             type_id,
-            Resource {
-                data: Arc::new(Storage::<T>::new(type_id, self.num_entities_estimate)),
+            StorageBox {
+                boxed: Arc::new(Storage::<T>::new(self.num_entities_estimate)),
             }
         );
 
@@ -155,23 +118,19 @@ impl World {
     ///Adds a component of type T to the passed-in entity, replaces and returns
     ///the T that was already here, if any.
     pub fn add_component<T: Component>(&self, ent: Entity, comp: T) -> Option<T> {
-        let guard = self.req_write_guard::<T>(); //This may block.
-
-        let storage: &mut Vec<Option<T>> = guard.raw_mut();
-        let entity_slot: &mut Option<T> = &mut storage[ent];
-
-        entity_slot.replace(comp)
+        let mut storage_guard = self.req_write_guard::<T>(); //This may block.
+        
+        storage_guard
+            .insert(ent, comp)
     }
 
     ///Removes the component of the type T from this entity and returns it.
     ///If this component type didn't exist on this entity, None is returned.
-    pub fn rm_component<T: Component>(&self, ent: Entity) -> Option<T> {
-        let guard = self.req_write_guard::<T>(); //This may block.
+    pub fn rm_component<T: Component>(&self, ent: &Entity) -> Option<T> {
+        let mut storage_guard = self.req_write_guard::<T>(); //This may block.
 
-        let storage: &mut Vec<Option<T>> = guard.raw_mut();
-        let entity_slot: &mut Option<T> = &mut storage[ent];
-
-        entity_slot.take()
+        storage_guard
+            .remove(ent)
     }
 
     ///Use to get thread-safe read-access to a single ECS Storage. If you need
@@ -182,7 +141,7 @@ impl World {
         let type_id = TypeId::of::<T>();
 
         //Request an ImmutableStorageGuard; blocks until read-access is allowed.
-        let storage = self
+        let storage_arc = self
             .storages
             .lock()
             .expect(STORAGE_POISON)
@@ -190,19 +149,18 @@ impl World {
             .unwrap_or_else(|| {
                 panic!("Attempted to request access to unregistered component storage");
             })
-            .concrete_clone::<Storage<T>>();
+            .clone_storage();
 
-        storage.init_read_access();
-        ImmutableStorageGuard::new(storage)
+        ImmutableStorageGuard::new(storage_arc)
     }
 
     ///Similar to req_read_guard() but returns Some(ImmutableStorageGuard) only
     ///if the passed in Entity has a Component of type T. Else returns None.
-    pub fn req_read_guard_if<T: Component>(&self, ent: Entity) -> Option<ImmutableStorageGuard<T>> {
+    pub fn req_read_guard_if<T: Component>(&self, ent: &Entity) -> Option<ImmutableStorageGuard<T>> {
         let type_id = TypeId::of::<T>();
 
         //Request an ImmutableStorageGuard; blocks until read-access is allowed.
-        let storage = self
+        let storage_arc = self
             .storages
             .lock()
             .expect(STORAGE_POISON)
@@ -210,11 +168,10 @@ impl World {
             .unwrap_or_else(|| {
                 panic!("Attempted to request access to uninitialized component storage");
             })
-            .concrete_clone::<Storage<T>>();
+            .clone_storage();
         
         {
-            storage.init_read_access();
-            let guard = ImmutableStorageGuard::new(storage);
+            let guard = ImmutableStorageGuard::new(storage_arc);
 
             if guard.get(ent).is_some() {
                 return Some(guard)
@@ -232,7 +189,7 @@ impl World {
     pub fn req_write_guard<T: Component>(&self) -> MutableStorageGuard<T> {
         let type_id = TypeId::of::<T>();
 
-        let storage = self
+        let storage_arc = self
             .storages
             .lock()
             .expect(STORAGE_POISON)
@@ -240,18 +197,17 @@ impl World {
             .unwrap_or_else(|| {
                 panic!("Attempted to request access to uninitialized component storage");
             })
-            .concrete_clone::<Storage<T>>();
+            .clone_storage();
 
-        storage.init_write_access();
-        MutableStorageGuard::new(storage)
+        MutableStorageGuard::new(storage_arc)
     }
 
     ///Similar to req_write_guard() but returns Some(MutableStorageGuard) if
     ///the passed-in Entity has a Component of type T. Else returns None.
-    pub fn req_write_guard_if<T: Component>(&self, ent: Entity) -> Option<MutableStorageGuard<T>> {
+    pub fn req_write_guard_if<T: Component>(&self, ent: &Entity) -> Option<MutableStorageGuard<T>> {
         let type_id = TypeId::of::<T>();
 
-        let storage = self
+        let storage_arc = self
             .storages
             .lock()
             .expect(STORAGE_POISON)
@@ -259,11 +215,10 @@ impl World {
             .unwrap_or_else(|| {
                 panic!("Attempted to request access to uninitialized component storage");
             })
-            .concrete_clone::<Storage<T>>();
+            .clone_storage();
         
         {
-            storage.init_write_access();
-            let guard = MutableStorageGuard::new(storage);
+            let guard = MutableStorageGuard::new(storage_arc);
 
             if guard.get_mut(ent).is_some() {
                 return Some(guard)
@@ -271,25 +226,5 @@ impl World {
         }
 
         None
-    }
-
-
-    //TODO: Due to not being able to get T in init_entity(), this fn is deprecated.
-    ///Used internally during entity initialization.
-    fn req_access_while_map_locked<'a, T: Component>(
-        &'a self,
-        storage_map_guard: &'a MutexGuard<'_, HashMap<TypeId, Resource>>,
-        type_id: &TypeId,
-    ) -> MutableStorageGuard<T> {
-
-        let storage = storage_map_guard
-            .get(type_id)
-            .unwrap_or_else(|| {
-                panic!("Attempted to request access to uninitialized component storage");
-            })
-            .concrete_clone::<Storage<T>>();
-
-        storage.init_write_access();
-        MutableStorageGuard::new(storage)
     }
 }

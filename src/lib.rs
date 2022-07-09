@@ -50,6 +50,12 @@
 //! struct ExampleComponent {
 //!     example_data: usize,
 //! }
+//! impl Default for ExampleComponent {
+//!     fn default() -> Self {
+//!         ExampleComponent { example_data: 0 }
+//!     }
+//! }
+//! impl Component for ExampleComponent {}
 //!
 //! let example_component = ExampleComponent { example_data: 7331 };
 //!
@@ -79,7 +85,7 @@
 //! world.add_component(entity, example_component);
 //!
 //! // You may remove Components from an Entity via the following:
-//! let the_removed_component: Option<Box<dyn Any>> = world.rm_component::<ExampleComponent>(entity);
+//! let the_removed_component: Option<ExampleComponent> = world.rm_component::<ExampleComponent>(&entity);
 //!
 //!```
 //!
@@ -91,6 +97,12 @@
 //! struct ExampleComponent {
 //!     example_data: usize,
 //! }
+//! impl Default for ExampleComponent {
+//!     fn default() -> Self {
+//!         ExampleComponent { example_data: 0 }
+//!     }
+//! }
+//! impl Component for ExampleComponent {}
 //!
 //! let world = world::World::new(101);
 //! world.register_component::<ExampleComponent>();
@@ -112,8 +124,7 @@
 //! */
 //! {
 //!     let storage_guard = world.req_read_guard::<ExampleComponent>();
-//!     let storage: &Vec<Option<Box<dyn Any>>> = storage_guard.raw();
-//!     let a_component: &Option<Box<dyn Any>> = storage_guard.get(my_entity);
+//!     let a_component: Option<&ExampleComponent> = storage_guard.get(&my_entity);
 //!     let component_iter = storage_guard.iter();
 //! }
 //!
@@ -126,8 +137,7 @@
 //! */
 //! {
 //!     let mut storage_guard = world.req_write_guard::<ExampleComponent>();
-//!     let storage: &mut Vec<Option<Box<dyn Any>>> = storage_guard.raw_mut();
-//!     let a_component: &mut Option<Box<dyn Any>> = storage_guard.get_mut(my_entity);
+//!     let a_component: Option<&mut ExampleComponent> = storage_guard.get_mut(&my_entity);
 //!     let component_iter_mut = storage_guard.iter_mut();
 //! }
 //!         
@@ -145,7 +155,7 @@
 //! */
 //!```
 
-use std::any::Any;
+//use std::any::Any;
 
 mod entity;
 mod storage;
@@ -153,18 +163,25 @@ pub mod world;
 
 pub type Entity = usize;
 
-pub trait Component: Any + Sized + Send + Sync {}
+pub trait Component: 'static + Sized + Send + Sync + Default {}
 
 #[cfg(test)]
 mod tests {
 
     //Must run 'cargo test -- --nocapture' to allow printing of time elapsed
 
+    use super::Component;
     use super::world::World;
     use std::time::Instant;
 
     struct TestComponent {
         _val: usize,
+    }
+    impl Component for TestComponent {}
+    impl Default for TestComponent {
+        fn default() -> Self {
+            TestComponent { _val: 0 }
+        }
     }
 
     #[test]

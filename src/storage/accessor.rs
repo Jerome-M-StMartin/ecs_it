@@ -5,10 +5,7 @@
 //-------------- Tracks Access to Storages' Inner UnsafeCell ----------------
 //-----------------------------------------------------------------------------
 
-use std::{
-    any::TypeId,
-    sync::{Condvar, Mutex},
-};
+use std::sync::{Condvar, Mutex};
 
 ///Abstraction Sequence:
 ///StorageGuard structs contain Accessor structs which contain AccessorState structs.
@@ -16,16 +13,14 @@ use std::{
 ///Used internally to guarantee safe concurrent access to Storages.
 #[derive(Debug)]
 pub struct Accessor {
-    pub(crate) type_id: TypeId,
     pub(crate) mtx: Mutex<AccessorState>,
     pub(crate) reader_cvar: Condvar,
     pub(crate) writer_cvar: Condvar,
 }
 
 impl Accessor {
-    pub(super) fn new(type_id: TypeId) -> Self {
+    pub(super) fn new() -> Self {
         Accessor {
-            type_id,
             mtx: Mutex::new(AccessorState {
                 readers: 0,
                 read_allowed: true,

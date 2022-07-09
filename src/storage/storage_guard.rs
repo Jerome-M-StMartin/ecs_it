@@ -7,12 +7,13 @@
 //------------------------------ Until Dropped --------------------------------
 //-----------------------------------------------------------------------------
 
-use std::sync::Arc;
+use std::{
+    collections::{HashMap, hash_map::Entry},
+    sync::Arc,
+};
 
 use super::Storage;
 use super::super::{Component, Entity};
-
-const USAGE_ERR: &str = "A StorageGuard cannot grant both immutable and mutable access!";
 
 ///What you get when you ask the ECS for access to a Storage via req_read_access().
 ///These should NOT be held long-term. Do your work then allow this struct to drop, else
@@ -24,28 +25,28 @@ pub struct ImmutableStorageGuard<T: Component> {
 
 impl<T> ImmutableStorageGuard<T> where T: Component {
     pub(crate) fn new(guarded: Arc<Storage<T>>) -> Self {
-
+        guarded.init_read_access();
         ImmutableStorageGuard {
             guarded,
         }
     }
 
-    pub fn get(&self, e: Entity) -> &Option<T> {
-        &self
+    pub fn get(&self, e: &Entity) -> Option<&T> {
+        self
             .guarded
             .unsafe_borrow()
-            [e]
+            .get(e)
             
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &Option<T>> {
+    pub fn iter(&self) -> impl Iterator<Item = &T> {
         self.guarded
             .unsafe_borrow()
-            .iter()
+            .values()
     }
 
     ///Favor using iter() or get() if at all possible.
-    pub fn raw(&self) -> &Vec<Option<T>> {
+    pub fn raw(&self) -> &HashMap<Entity, T> {
         self.guarded.unsafe_borrow()
     }
 }
@@ -60,165 +61,62 @@ pub struct MutableStorageGuard<T: Component> {
 
 impl<T> MutableStorageGuard<T> where T: Component {
     pub(crate) fn new(guarded: Arc<Storage<T>>) -> Self {
-
+        guarded.init_write_access();
         MutableStorageGuard { 
             guarded,
         }
     }
 
-    pub fn get_mut(&self, e: Entity) -> &mut Option<T> {
-        &mut self
-            .guarded
-            .unsafe_borrow_mut()
-            [e]
-    }
-
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Option<T>> {
+    pub fn entry(&mut self, e: Entity) -> Entry<'_, Entity, T> {
         self
             .guarded
             .unsafe_borrow_mut()
-            .iter_mut()
+            .entry(e)
     }
 
-    pub fn raw_mut(&self) -> &mut Vec<Option<T>> {
+    ///User should perefer .entry() over this, the std Entry API is great.
+    pub fn get_mut(&self, e: &Entity) -> Option<&mut T> {
+        self
+            .guarded
+            .unsafe_borrow_mut()
+            .get_mut(e)
+    }
+
+    pub fn insert(&mut self, e: Entity, c: T) -> Option<T> {
+        self
+            .guarded
+            .unsafe_borrow_mut()
+            .insert(e, c)
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
+        self
+            .guarded
+            .unsafe_borrow_mut()
+            .values_mut()
+    }
+
+    pub fn raw_mut(&self) -> &mut HashMap<Entity, T> {
         self.guarded.unsafe_borrow_mut()
+    }
+
+    pub fn remove(&mut self, e: &Entity) -> Option<T> {
+        self
+            .guarded
+            .unsafe_borrow_mut()
+            .remove(e)
     }
 }
 
-///Writer-Prioritized Concurrent Access:
-///
-///Implementations of Drop for Immutable/MutableStorageGuards are half of
-///the implementation of the above goal.
-///
-///This implementation should, assuming my logic is sound and correctly
-///implemented, eliminate the possibility of starvation for writers. Readers,
-///on the other hand, can VERY EASILY be starved if writers are continuously
-///requesting access. This is an intentional trade-off: the use case for this
-///ECS is turn-based video games, where reads occur every tick, but writes
-///occur only corresponding with user input.
-///
-///NOTE: This implementation does NOT guarantee that all readers will read the
-///result of every write. Many sequential writes may occur without any reads
-///in-between.
 impl<T> Drop for ImmutableStorageGuard<T> where T: Component {
     fn drop(&mut self) {
-        let mut accessor_state = self
-            .guarded
-            .accessor
-            .mtx
-            .lock()
-            .expect("StorageGuard Mutex poisoned before .drop()");
-
-        //This StorageGuard was granting non-exclusive Read access,
-        //so the reader count must be decremented.
-        accessor_state.readers -= 1;
-
-        if accessor_state.readers == 0 {
-            //There are no current readers, so write access is allowed.
-            accessor_state.write_allowed = true;
-
-            //Note: read_allowed is not and SHOULD NOT BE set to false
-            //here, because it is possible to reach 0 readers before
-            //the entire pool of notified readers have had a chance to
-            //read. By leaving read_allowed set to true, it gives these
-            //"late" readers a chance to race for the lock.
-            //
-            //Furthermore, and most importantly, setting read_allowed to
-            //false at this point introduces the possibility of an
-            //erronious reader lockout where there are no readers nor
-            //writers yet read_allowed is set to false. This would
-            //self-correct once a writer drops, but until that point
-            //behaviour would be incorrect.
-        }
-
-        //Writer prioritization:
-        if accessor_state.writers_waiting > 0 {
-            self.guarded.accessor.writer_cvar.notify_one();
-        } else {
-            self.guarded.accessor.reader_cvar.notify_all();
-        }
+        self.guarded.drop_read_access();
     }
 }
 
 impl<T> Drop for MutableStorageGuard<T> where T: Component {
     fn drop(&mut self) {
-            let mut accessor_state = self
-            .guarded
-            .accessor
-            .mtx
-            .lock()
-            .expect("StorageGuard Mutex poisoned before .drop()");
-
-        //This StorageGuard was giving exclusive Write access, so it is
-        //now safe to allow any type of access.
-        accessor_state.write_allowed = true;
-        accessor_state.read_allowed = true;
-
-        //Writer prioritization:
-        if accessor_state.writers_waiting > 0 {
-            self.guarded.accessor.writer_cvar.notify_one();
-        } else {
-            self.guarded.accessor.reader_cvar.notify_all();
-        }
+        self.guarded.drop_write_access();
     }
 }
 
-/*
-impl Drop for StorageGuard {
-    fn drop(&mut self) {
-            let mut accessor_state = self
-            .storage
-            .accessor
-            .mtx
-            .lock()
-            .expect("StorageGuard Mutex poisoned before .drop()");
-
-        match (accessor_state.write_allowed, accessor_state.read_allowed) {
-            (false, false) => {
-                //This StorageGuard was giving exclusive Write access, so it is
-                //now safe to allow any type of access.
-                accessor_state.write_allowed = true;
-                accessor_state.read_allowed = true;
-            }
-
-            (false, true) => {
-                //This StorageGuard was granting non-exclusive Read access,
-                //so the reader count must be decremented.
-                accessor_state.readers -= 1;
-
-                if accessor_state.readers == 0 {
-                    //There are no current readers, so write access is allowed.
-                    accessor_state.write_allowed = true;
-
-                    //Note: read_allowed is not and SHOULD NOT BE set to false
-                    //here, because it is possible to reach 0 readers before
-                    //the entire pool of notified readers have had a chance to
-                    //read. By leaving read_allowed set to true, it gives these
-                    //"late" readers a chance to race for the lock.
-                    //
-                    //Furthermore, and most importantly, setting read_allowed to
-                    //false at this point introduces the possibility of an
-                    //erronious reader lockout where there are no readers nor
-                    //writers yet read_allowed is set to false. This would
-                    //self-correct once a writer drops, but until that point
-                    //behaviour would be incorrect.
-                }
-            }
-
-            (w, r) => {
-                panic!(
-                    "This Condvar configuration should not be possible: ({}, {})",
-                    w, r
-                )
-            }
-        }
-
-        //Writer prioritization:
-        if accessor_state.writers_waiting > 0 {
-            self.storage.accessor.writer_cvar.notify_one();
-        } else {
-            self.storage.accessor.reader_cvar.notify_all();
-        }
-    }
-}
-*/
