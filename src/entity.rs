@@ -5,9 +5,33 @@
 //------------------------------- ECS Entities --------------------------------
 //-----------------------------------------------------------------------------
 
-use std::collections::HashSet;
+use std::{
+    any::Any,
+    collections::{HashMap, HashSet, hash_set::Iter},
+    marker::PhantomData,
+};
 
-use super::Entity;
+use super::{
+    Component,
+    Entity,
+    world::World,
+};
+
+
+///Used internally to track what Component types are associated with an Entity.
+struct PhantomType {
+    t: Box<dyn Any>,
+}
+
+impl PhantomType {
+    fn new<T: 'static>() -> Self {
+        PhantomType {
+            t: Box::new(PhantomData::<T>),
+        }
+    }
+}
+
+//-----------------------------------------------------------------------------
 
 ///Internal; generating, controlling, and  holding unique Entity IDs.
 pub struct Entities {
@@ -16,6 +40,7 @@ pub struct Entities {
     num_entities: usize,
     active_entities: HashSet<Entity>,
     dead_entities: Vec<Entity>,
+    component_map: HashMap<Entity, Vec<PhantomType>>, //Components attached to each Entity
 }
 
 impl Entities {
@@ -24,6 +49,7 @@ impl Entities {
             num_entities: 0,
             active_entities: HashSet::new(),
             dead_entities: Vec::new(),
+            component_map: HashMap::new(),
         }
     }
 
@@ -35,19 +61,35 @@ impl Entities {
         entity_id
     }
 
+    pub(crate) fn associate_component_with<T>(&mut self, e: Entity) where T: Component {
+        self.component_map
+            .entry(e)
+            .and_modify(|entry| {
+                entry.push(PhantomType::new::<T>());
+            })
+            .or_insert_with(|| {
+                vec![PhantomType::new::<T>()]
+            });
+    }
+
     ///This returns a boolean corresponding to whether the entity existed or not.
     ///If it existed, it was removed and this will return true, else false.
     ///Attempting to remove an Entity that doesn't exist won't panic.
-    pub(crate) fn rm_entity(&mut self, ent: Entity) -> bool {
+    pub(crate) fn rm_entity(&mut self, ent: Entity, world: &World) -> bool {
         //Panics if ent doesn't exist.
         if let Some(entity_to_rm) = self.active_entities.take(&ent) {
             self.dead_entities.push(entity_to_rm);
             //TODO: Need to mutate storages corresponding to this EntityID.
+            //Delete components associated with this Entity
 
             return true;
         }
 
         false
+    }
+
+    pub(crate) fn iter(&self) -> Iter<'_, Entity> {
+        self.active_entities.iter()
     }
 
     pub(crate) fn vec(&self) -> Vec<Entity> {

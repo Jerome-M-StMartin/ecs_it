@@ -88,6 +88,22 @@ impl World {
         entities_guard.vec().into_iter()
     }
 
+    pub fn rm_entity(&self, e: Entity) {
+        //TODO: Problem, don't know the type of Components on the Entity.
+        //Solution: Store a HashMap<Entity, Vec<Component::Default()>>,
+        //where each Vec corresponds to an Entity?
+        //Feels somewhat wasteful of space, I wish there was a way to store
+        //raw type data somehow... maybe:
+        //  struct PhantomType<T> {
+        //      type: PhantomData<T>,
+        //  }
+        //
+        //  ???
+        //
+        //  I'll try this, it'll be in entity.rs::Entities.
+        //
+    }
+
     ///Component types must be registered with the ECS before they are accessed.
     ///
     /// ## Panics
@@ -120,8 +136,19 @@ impl World {
     pub fn add_component<T: Component>(&self, ent: Entity, comp: T) -> Option<T> {
         let mut storage_guard = self.req_write_guard::<T>(); //This may block.
         
-        storage_guard
-            .insert(ent, comp)
+        //'Attatch' component to ent
+        let old_component = storage_guard.insert(ent, comp);
+
+        if old_component.is_none() {
+            //Record that this Entity now has a Component of type T.
+            self
+                .entities
+                .lock()
+                .unwrap_or_else(|e| { panic!("{:?}", e); })
+                .associate_component_with::<T>(ent);
+        }
+
+        old_component
     }
 
     ///Removes the component of the type T from this entity and returns it.

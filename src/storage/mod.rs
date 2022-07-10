@@ -22,7 +22,7 @@ pub use storage_guard::{ImmutableStorageGuard, MutableStorageGuard};
 
 ///Used internally to provide abstraction over generically typed Storages
 ///to allow storing of any kind of Storage<T> inside of World without having
-///to generically type the World struct too.
+///to generically type the World struct too, which would break everything.
 #[derive(Debug)]
 pub(crate) struct StorageBox {
     pub(crate) boxed: Arc<dyn Any + Send + Sync + 'static>,
@@ -37,8 +37,6 @@ impl StorageBox {
     }
 }
 
-unsafe impl Sync for StorageBox {}
-
 //-----------------------------------------------------------------------------
 
 ///Used internally to store components of a single type, and to control both
@@ -46,7 +44,6 @@ unsafe impl Sync for StorageBox {}
 #[derive(Debug)]
 pub(crate) struct Storage<T> {
     accessor: Accessor,
-    //inner: UnsafeCell<Vec<Option<T>>>,
     inner: UnsafeCell<HashMap<Entity, T>>,
 }
 
