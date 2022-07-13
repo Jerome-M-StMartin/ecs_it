@@ -5,12 +5,7 @@
 //-------------------------- ECS Component Storages ---------------------------
 //-----------------------------------------------------------------------------
 
-use std::{
-    any::Any,
-    sync::Arc,
-    cell::UnsafeCell,
-    collections::HashMap,
-};
+use std::{any::Any, cell::UnsafeCell, collections::HashMap, sync::Arc};
 
 use super::{Component, Entity};
 
@@ -23,7 +18,7 @@ pub use storage_guard::{ImmutableStorageGuard, MutableStorageGuard};
 ///Used internally to provide abstraction over generically typed Storages
 ///to allow storing of any kind of Storage<T> inside of World without having
 ///to generically type the World struct too, which would break everything.
-#[derive(Debug)]
+//#[derive(Debug)]
 pub(crate) struct StorageBox {
     pub(crate) boxed: Arc<dyn Any + Send + Sync + 'static>,
 }
@@ -31,10 +26,14 @@ pub(crate) struct StorageBox {
 impl StorageBox {
     pub(crate) fn clone_storage<T: Component>(&self) -> Arc<Storage<T>> {
         let arc_any = self.boxed.clone();
-        arc_any
-            .downcast::<Storage<T>>()
-            .unwrap_or_else(|e| { panic!("{:?}", e); })
+        arc_any.downcast::<Storage<T>>().unwrap_or_else(|e| {
+            panic!("{:?}", e);
+        })
     }
+}
+
+pub(crate) trait AnyStorage {
+    fn rm_component(&self, e: &Entity);
 }
 
 //-----------------------------------------------------------------------------
@@ -49,9 +48,12 @@ pub(crate) struct Storage<T> {
 
 unsafe impl<T> Sync for Storage<T> where T: Component {}
 
-impl<T> Storage<T> where T: Component {
-    pub(crate) fn new(num_ents_estimate: usize) -> Self {
-        let new_map = HashMap::with_capacity(num_ents_estimate);
+impl<T> Storage<T>
+where
+    T: Component,
+{
+    pub(crate) fn new() -> Self {
+        let new_map = HashMap::new();
 
         Storage {
             accessor: Accessor::new(),
@@ -106,10 +108,12 @@ impl<T> Storage<T> where T: Component {
         accessor_state.writers_waiting -= 1;
     }
 
+    ///Called internally only by ImmutableStorageGuard API.
     pub(super) fn unsafe_borrow(&self) -> &HashMap<Entity, T> {
         unsafe { &*self.inner.get() }
     }
 
+    ///Called internally only by MutableStorageGuard API.
     pub(super) fn unsafe_borrow_mut(&self) -> &mut HashMap<Entity, T> {
         unsafe { &mut *self.inner.get() }
     }

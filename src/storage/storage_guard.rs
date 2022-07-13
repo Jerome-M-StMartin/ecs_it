@@ -8,12 +8,12 @@
 //-----------------------------------------------------------------------------
 
 use std::{
-    collections::{HashMap, hash_map::Entry},
+    collections::{hash_map::Entry, HashMap},
     sync::Arc,
 };
 
-use super::Storage;
 use super::super::{Component, Entity};
+use super::Storage;
 
 ///What you get when you ask the ECS for access to a Storage via req_read_access().
 ///These should NOT be held long-term. Do your work then allow this struct to drop, else
@@ -23,26 +23,21 @@ pub struct ImmutableStorageGuard<T: Component> {
     guarded: Arc<Storage<T>>,
 }
 
-impl<T> ImmutableStorageGuard<T> where T: Component {
+impl<T> ImmutableStorageGuard<T>
+where
+    T: Component,
+{
     pub(crate) fn new(guarded: Arc<Storage<T>>) -> Self {
         guarded.init_read_access();
-        ImmutableStorageGuard {
-            guarded,
-        }
+        ImmutableStorageGuard { guarded }
     }
 
     pub fn get(&self, e: &Entity) -> Option<&T> {
-        self
-            .guarded
-            .unsafe_borrow()
-            .get(e)
-            
+        self.guarded.unsafe_borrow().get(e)
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &T> {
-        self.guarded
-            .unsafe_borrow()
-            .values()
+        self.guarded.unsafe_borrow().values()
     }
 
     ///Favor using iter() or get() if at all possible.
@@ -59,41 +54,30 @@ pub struct MutableStorageGuard<T: Component> {
     guarded: Arc<Storage<T>>,
 }
 
-impl<T> MutableStorageGuard<T> where T: Component {
+impl<T> MutableStorageGuard<T>
+where
+    T: Component,
+{
     pub(crate) fn new(guarded: Arc<Storage<T>>) -> Self {
         guarded.init_write_access();
-        MutableStorageGuard { 
-            guarded,
-        }
+        MutableStorageGuard { guarded }
     }
 
     pub fn entry(&mut self, e: Entity) -> Entry<'_, Entity, T> {
-        self
-            .guarded
-            .unsafe_borrow_mut()
-            .entry(e)
+        self.guarded.unsafe_borrow_mut().entry(e)
     }
 
     ///User should perefer .entry() over this, the std Entry API is great.
     pub fn get_mut(&self, e: &Entity) -> Option<&mut T> {
-        self
-            .guarded
-            .unsafe_borrow_mut()
-            .get_mut(e)
+        self.guarded.unsafe_borrow_mut().get_mut(e)
     }
 
     pub fn insert(&mut self, e: Entity, c: T) -> Option<T> {
-        self
-            .guarded
-            .unsafe_borrow_mut()
-            .insert(e, c)
+        self.guarded.unsafe_borrow_mut().insert(e, c)
     }
 
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
-        self
-            .guarded
-            .unsafe_borrow_mut()
-            .values_mut()
+        self.guarded.unsafe_borrow_mut().values_mut()
     }
 
     pub fn raw_mut(&self) -> &mut HashMap<Entity, T> {
@@ -101,22 +85,30 @@ impl<T> MutableStorageGuard<T> where T: Component {
     }
 
     pub fn remove(&mut self, e: &Entity) -> Option<T> {
-        self
-            .guarded
-            .unsafe_borrow_mut()
-            .remove(e)
+        self.guarded.unsafe_borrow_mut().remove(e)
+    }
+
+    pub(crate) fn maintain_storage(&mut self, dead_entities: std::slice::Iter<'_, Entity>) {
+        for ent in dead_entities {
+            self.remove(ent);
+        }
     }
 }
 
-impl<T> Drop for ImmutableStorageGuard<T> where T: Component {
+impl<T> Drop for ImmutableStorageGuard<T>
+where
+    T: Component,
+{
     fn drop(&mut self) {
         self.guarded.drop_read_access();
     }
 }
 
-impl<T> Drop for MutableStorageGuard<T> where T: Component {
+impl<T> Drop for MutableStorageGuard<T>
+where
+    T: Component,
+{
     fn drop(&mut self) {
         self.guarded.drop_write_access();
     }
 }
-

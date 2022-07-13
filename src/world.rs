@@ -9,44 +9,29 @@ use std::{
 
 use super::{
     entity::Entities,
-    storage::{
-        Storage,
-        StorageBox,
-        ImmutableStorageGuard,
-        MutableStorageGuard
-    },
-    Entity, //usize
+    storage::{ImmutableStorageGuard, MutableStorageGuard, Storage, StorageBox},
     Component,
+    Entity, //usize
 };
 
 const STORAGE_POISON: &str = "storages mtx found poisoned in world.rs";
+const ENTITIES_POISON: &str = "Entities mtx found poisoned in world.rs";
+const MAINTENANCE_FN_POISON: &str = "maintenance_fns mtx found poisoned in world.rs";
 
 ///The core of the library; must instantiate.
 pub struct World {
     //Arc<World>
-    pub(crate) num_entities_estimate: usize, //used as init size for Storage vecs
     pub(crate) entities: Mutex<Entities>,
     storages: Mutex<HashMap<TypeId, StorageBox>>,
+    maintenance_fns: Mutex<Vec<Box<dyn Fn(&World, &Entity)>>>,
 }
 
 impl World {
-    /// Provide a non-zero estimate of the total number of entities you wish to
-    /// instantiate at any given time. It's used as the initialization length
-    /// of Storage vecs.
-    ///
-    ///This estimate should probably not exceed a few thousand - if you need an
-    ///ECS that can handle that volume in a performant manner I suggest 'specs',
-    ///which provides mutliple underlying storage types, while this library uses
-    ///only Vecs. So, for example, if you have a component associated with only
-    ///a few Entities, say one Entity, but have 1,000 living Entities, there
-    ///will exist a Vec with 999 'None' elements and 1 'Some' element.
-    pub fn new(num_entities_estimate: usize) -> Self {
-        assert!(num_entities_estimate > 0); //should also prob. not exceed ~10,000
-
+    pub fn new() -> Self {
         World {
-            num_entities_estimate,
             entities: Mutex::new(Entities::new()),
             storages: Mutex::new(HashMap::new()),
+            maintenance_fns: Mutex::new(Vec::new()),
         }
     }
 
@@ -69,7 +54,7 @@ impl World {
     ///```
     /// use ecs_it::world::World;
     ///
-    /// let world = World::new(5);
+    /// let world = World::new();
     ///
     /// for _ in 0..5 {
     ///     world.create_entity();
@@ -80,42 +65,27 @@ impl World {
     /// }
     ///```
     pub fn entity_iter(&self) -> impl Iterator<Item = Entity> {
-        let entities_guard: MutexGuard<Entities> = self
-            .entities
-            .lock()
-            .expect("Entities mtx found poisoned in world.rs");
-        
+        let entities_guard: MutexGuard<Entities> = self.entities.lock().expect(ENTITIES_POISON);
+
         entities_guard.vec().into_iter()
     }
 
     pub fn rm_entity(&self, e: Entity) {
-        //TODO: Problem, don't know the type of Components on the Entity.
-        //Solution: Store a HashMap<Entity, Vec<Component::Default()>>,
-        //where each Vec corresponds to an Entity?
-        //Feels somewhat wasteful of space, I wish there was a way to store
-        //raw type data somehow... maybe:
-        //  struct PhantomType<T> {
-        //      type: PhantomData<T>,
-        //  }
-        //
-        //  ???
-        //
-        //  I'll try this, it'll be in entity.rs::Entities.
-        //
+        self.entities.lock().expect(ENTITIES_POISON).rm_entity(e);
     }
 
-    ///Component types must be registered with the ECS before they are accessed.
+    ///Component types must be registered with the ECS before use. This fn also
+    ///creates an FnMut() based for each registered component, which is used
+    ///internally to maintain the ecs. (This is why world.maintain() must be
+    ///called periodically.)
     ///
     /// ## Panics
-    ///
     /// Panics if you register the same component type twice.
     pub fn register_component<T: Component>(&self) {
         let type_id = TypeId::of::<T>();
 
-        let mut storages_guard: MutexGuard<'_, HashMap<TypeId, StorageBox>> = self
-            .storages
-            .lock()
-            .expect(STORAGE_POISON);
+        let mut storages_guard: MutexGuard<'_, HashMap<TypeId, StorageBox>> =
+            self.storages.lock().expect(STORAGE_POISON);
 
         if storages_guard.contains_key(&type_id) {
             panic!("attempted to register the same component type twice");
@@ -124,30 +94,33 @@ impl World {
         let should_be_none = storages_guard.insert(
             type_id,
             StorageBox {
-                boxed: Arc::new(Storage::<T>::new(self.num_entities_estimate)),
-            }
+                boxed: Arc::new(Storage::<T>::new()),
+            },
         );
 
         assert!(should_be_none.is_none());
+
+        //Generate Fn to be called in world.maintain() & store it in World
+        fn maintain_storage<T>(world: &World, entity: &Entity) where T: Component {
+            let mut mut_guard = world.req_write_guard::<T>();
+            mut_guard.remove(entity);
+        }
+
+        let mut maint_fn_guard = self
+            .maintenance_fns
+            .lock()
+            .expect(MAINTENANCE_FN_POISON);
+
+        maint_fn_guard.push(Box::new(maintain_storage::<T>));
     }
 
     ///Adds a component of type T to the passed-in entity, replaces and returns
     ///the T that was already here, if any.
     pub fn add_component<T: Component>(&self, ent: Entity, comp: T) -> Option<T> {
         let mut storage_guard = self.req_write_guard::<T>(); //This may block.
-        
+
         //'Attatch' component to ent
         let old_component = storage_guard.insert(ent, comp);
-
-        if old_component.is_none() {
-            //Record that this Entity now has a Component of type T.
-            self
-                .entities
-                .lock()
-                .unwrap_or_else(|e| { panic!("{:?}", e); })
-                .associate_component_with::<T>(ent);
-        }
-
         old_component
     }
 
@@ -156,8 +129,27 @@ impl World {
     pub fn rm_component<T: Component>(&self, ent: &Entity) -> Option<T> {
         let mut storage_guard = self.req_write_guard::<T>(); //This may block.
 
-        storage_guard
-            .remove(ent)
+        storage_guard.remove(ent)
+    }
+
+    //TODO: Docs
+    pub fn maintain_ecs(&self) {
+        let maint_fns = self
+            .maintenance_fns
+            .lock()
+            .expect(MAINTENANCE_FN_POISON);
+
+        let entities_guard = self
+            .entities
+            .lock()
+            .expect(ENTITIES_POISON);
+
+        let dead_ent_inter = entities_guard.dead_iter();
+        let zipped = dead_ent_inter.zip(maint_fns.iter());
+
+        for (entity, f) in zipped {
+            f(&self, entity);
+        }
     }
 
     ///Use to get thread-safe read-access to a single ECS Storage. If you need
@@ -183,7 +175,10 @@ impl World {
 
     ///Similar to req_read_guard() but returns Some(ImmutableStorageGuard) only
     ///if the passed in Entity has a Component of type T. Else returns None.
-    pub fn req_read_guard_if<T: Component>(&self, ent: &Entity) -> Option<ImmutableStorageGuard<T>> {
+    pub fn req_read_guard_if<T: Component>(
+        &self,
+        ent: &Entity,
+    ) -> Option<ImmutableStorageGuard<T>> {
         let type_id = TypeId::of::<T>();
 
         //Request an ImmutableStorageGuard; blocks until read-access is allowed.
@@ -196,12 +191,12 @@ impl World {
                 panic!("Attempted to request access to uninitialized component storage");
             })
             .clone_storage();
-        
+
         {
             let guard = ImmutableStorageGuard::new(storage_arc);
 
             if guard.get(ent).is_some() {
-                return Some(guard)
+                return Some(guard);
             }
         }
 
@@ -243,12 +238,12 @@ impl World {
                 panic!("Attempted to request access to uninitialized component storage");
             })
             .clone_storage();
-        
+
         {
             let guard = MutableStorageGuard::new(storage_arc);
 
             if guard.get_mut(ent).is_some() {
-                return Some(guard)
+                return Some(guard);
             }
         }
 

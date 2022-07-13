@@ -59,19 +59,8 @@
 //!
 //! let example_component = ExampleComponent { example_data: 7331 };
 //!
-//! /*
-//! * Initialize the ECS World. The new() fn takes one argument, which is an
-//! * ESTIMATE of the number of Entities that will exist in your program at
-//! * any given time. Internally, Storages contain a Vec, and this estimate
-//! * is used when initializing these vectors to allocate space to support
-//! * the estimated number of entities. This is not critical, as the vectors
-//! * can re-allocate themselves more space at runtime, but not having to
-//! * perform this re-allocation will provide a small performance benefit.
-//! * The estimate MUST be an integer greater than Zero.
-//! */
-//! 
-//! let num_entities_estimate: usize = 100;
-//! let world = ecs_it::world::World::new(num_entities_estimate);
+//! // Initialize the ECS World.
+//! let world = ecs_it::world::World::new();
 //!
 //! /*
 //! * IMPORTANT:
@@ -104,7 +93,7 @@
 //! }
 //! impl Component for ExampleComponent {}
 //!
-//! let world = world::World::new(101);
+//! let world = world::World::new();
 //! world.register_component::<ExampleComponent>();
 //! let my_entity = world.create_entity();
 //!
@@ -163,15 +152,15 @@ pub mod world;
 
 pub type Entity = usize;
 
-pub trait Component: 'static + Sized + Send + Sync + Default {}
+pub trait Component: 'static + Sized + Send + Sync {}
 
 #[cfg(test)]
 mod tests {
 
     //Must run 'cargo test -- --nocapture' to allow printing of time elapsed
 
-    use super::Component;
     use super::world::World;
+    use super::Component;
     use std::time::Instant;
 
     struct TestComponent {
@@ -186,7 +175,7 @@ mod tests {
 
     #[test]
     fn entity_tests() {
-        let w = World::new(3);
+        let w = World::new();
         let entity0: usize = w.create_entity();
         let entity1: usize = w.create_entity();
         let entity2: usize = w.create_entity();
@@ -202,7 +191,7 @@ mod tests {
 
     #[test]
     fn add_component() {
-        let w = World::new(1);
+        let w = World::new();
         let entity0: usize;
         let mut now = Instant::now();
         {
