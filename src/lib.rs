@@ -9,7 +9,7 @@
 //!
 //! Component - A struct associated with a specific Entity.
 //!
-//! Storage - A vector of Components of a specific type.
+//! Storage - A collection of Components of a specific type.
 //!
 //! System - Logic that operates over one or more Components within one or more Storages.
 //!
@@ -38,7 +38,7 @@
 //! The World is a container for the various Storages and Entities you create, and it should be
 //! stored in an Arc<> for shared ownership between threads that need access to the ECS.
 //!
-//! Components can be any struct which is 'static + Any.
+//! Components can be any struct which is 'static + Sized + Send + Sync.
 //!
 //! # Demonstration of Use:
 //!
@@ -49,11 +49,6 @@
 //! // Define a Struct which will be a Component:
 //! struct ExampleComponent {
 //!     example_data: usize,
-//! }
-//! impl Default for ExampleComponent {
-//!     fn default() -> Self {
-//!         ExampleComponent { example_data: 0 }
-//!     }
 //! }
 //! impl Component for ExampleComponent {}
 //!
@@ -138,10 +133,25 @@
 //! ImmutableStorageGuards for the same Storage if and only if there are no
 //! MutableStorageGuards already.
 //!
-//! Because of this, you never have to worry about keeping track of what access
+//! Because of this, you don't have to worry about keeping track of what access
 //! was granted where -- simply drop StorageGuards when you no longer need
-//! access to that storage (by simply allowing the guard to fall out of scope).
+//! access to that storage (by allowing the guard to fall out of scope).
 //! */
+//!
+//! /*
+//! Finally, we clean up any Components associated with removed Entities. This
+//! isn't necessary in this example, but for an actual use-case it almost
+//! certainly is. Think of this as manually-triggered Garbage Collection.
+//! Failure to do this results in a memory leak, because all Components will
+//! remain in memory for "dead" Entities. Additionally, there will be non-
+//! negligible detriment to performance of Systems you impliment because they
+//! will be iterating and operating over Components which are associated with
+//! "dead" Entities - a complete waste. Furthermore, you may see erroneous
+//! behaviour due to Systems interacting with Entity data that should no
+//! longer exist.
+//! */
+
+//! world.maintain_ecs();
 //!```
 
 //use std::any::Any;
