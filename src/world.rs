@@ -107,15 +107,15 @@ impl World {
         assert!(should_be_none.is_none());
 
         //Generate Fn to be called in world.maintain() & store it in World
-        fn maintain_storage<T>(world: &World, entity: &Entity) where T: Component {
+        fn maintain_storage<T>(world: &World, entity: &Entity)
+        where
+            T: Component,
+        {
             let mut mut_guard = world.req_write_guard::<T>();
             mut_guard.remove(entity);
         }
 
-        let mut maint_fn_guard = self
-            .maintenance_fns
-            .lock()
-            .expect(MAINTENANCE_FN_POISON);
+        let mut maint_fn_guard = self.maintenance_fns.lock().expect(MAINTENANCE_FN_POISON);
 
         maint_fn_guard.push(Box::new(maintain_storage::<T>));
     }
@@ -152,16 +152,68 @@ impl World {
     ///the start of a game tick(). Anywhere but right in the middle, because
     ///you'll operate on garbage data in your Systems. This won't be a
     ///"problem" per-se, but it will result in wasted CPU cycles.
+    ///
+    ///# Example
+    ///```
+    /// use ecs_it::{
+    ///     world::World,
+    ///     Component,
+    /// };
+    ///
+    /// #[derive(Debug)]
+    /// struct DummyComponent {
+    ///     dummy_data: usize,
+    /// }
+    /// impl Component for DummyComponent {}
+    ///
+    /// let world = World::new();
+    /// world.register_component::<DummyComponent>();
+    ///
+    /// let ent1 = world.create_entity();
+    /// world.add_component(ent1, DummyComponent { dummy_data: 1337 });
+    ///
+    /// let ent2 = world.create_entity();
+    /// world.add_component(ent2, DummyComponent { dummy_data: 9001 });
+    ///
+    /// { //scope-in to drop the guard when required
+    ///     let guard = world.req_read_guard::<DummyComponent>();
+    ///
+    ///     //This should print two DummyComponents, one for each entitiy.
+    ///     for component in guard.iter() {
+    ///         println!("{:?}", component);
+    ///     }
+    ///
+    ///     world.rm_entity(ent1);
+    ///
+    ///     //Despite removing an Entity, this will still print two DummyComponents
+    ///     //which is erroneous behaviour. To prevent this, call ecs_maintain()
+    ///     //after each call to rm_entity() but prior to using any Component data
+    ///     //which may have been associated with the removed Entity.
+    ///     for component in guard.iter() {
+    ///         println!("{:?}", component);
+    ///     }
+    ///
+    ///     //Drop the guard first, because maintain_ecs() grabs all of them.
+    ///     //This is done by letting the guard fall out of scope in the next
+    ///     //line.
+    /// }
+    ///
+    /// world.maintain_ecs();
+    ///
+    /// //re-acquire the guard
+    /// let guard = world.req_read_guard::<DummyComponent>();
+    ///
+    /// //This should only print the DummyComponent associated with the living
+    /// //Entity "ent2". All components associated with dead Entities is now
+    /// //dropped from memory.
+    /// for component in guard.iter() {
+    ///     println!("{:?}", component);
+    /// }
+    ///```
     pub fn maintain_ecs(&self) {
-        let maint_fns = self
-            .maintenance_fns
-            .lock()
-            .expect(MAINTENANCE_FN_POISON);
+        let maint_fns = self.maintenance_fns.lock().expect(MAINTENANCE_FN_POISON);
 
-        let entities_guard = self
-            .entities
-            .lock()
-            .expect(ENTITIES_POISON);
+        let entities_guard = self.entities.lock().expect(ENTITIES_POISON);
 
         let dead_ent_inter = entities_guard.dead_iter();
         let zipped = dead_ent_inter.zip(maint_fns.iter());
@@ -170,7 +222,7 @@ impl World {
             f(&self, entity);
         }
     }
-    
+
     ///Use to get thread-safe read-access to a single ECS Storage.
     ///## Panics
     ///Panics if you call on an unregistered Component type, T.
