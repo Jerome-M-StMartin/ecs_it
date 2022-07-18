@@ -18,7 +18,7 @@ const STORAGE_POISON: &str = "storages mtx found poisoned in world.rs";
 const ENTITIES_POISON: &str = "Entities mtx found poisoned in world.rs";
 const MAINTENANCE_FN_POISON: &str = "maintenance_fns mtx found poisoned in world.rs";
 
-///The core of the library; must instantiate.
+///The core of the library; must instantiate (via World::new()).
 pub struct World {
     //Arc<World>
     pub(crate) entities: Mutex<Entities>,
@@ -35,6 +35,10 @@ impl World {
         }
     }
 
+    ///Inserts a "blank" Entity into the World. You need to call
+    ///add_component() to allow this Entity to do/be anything of
+    ///substance. Returns the entity ID, which is a usize, which
+    ///is type-aliased as "Entity" in this library.
     pub fn create_entity(&self) -> Entity {
         let id = self
             .entities
@@ -70,6 +74,8 @@ impl World {
         entities_guard.vec().into_iter()
     }
 
+    ///When entities "die" or otherwise need to be removed from the game world,
+    ///this is the fn to call. See: World::ecs_maintain()
     pub fn rm_entity(&self, e: Entity) {
         self.entities.lock().expect(ENTITIES_POISON).rm_entity(e);
     }
@@ -114,7 +120,7 @@ impl World {
         maint_fn_guard.push(Box::new(maintain_storage::<T>));
     }
 
-    ///Adds a component of type T to the passed-in entity, replaces and returns
+    ///Adds a component of type T to the passed-in entityr; replaces and returns
     ///the T that was already here, if any.
     pub fn add_component<T: Component>(&self, ent: Entity, comp: T) -> Option<T> {
         let mut storage_guard = self.req_write_guard::<T>(); //This may block.
@@ -128,11 +134,24 @@ impl World {
     ///If this component type didn't exist on this entity, None is returned.
     pub fn rm_component<T: Component>(&self, ent: &Entity) -> Option<T> {
         let mut storage_guard = self.req_write_guard::<T>(); //This may block.
-
         storage_guard.remove(ent)
     }
 
-    //TODO: Docs
+    ///Must be called every once and a while, depending on how often Entities
+    ///are being "killed" in your game. If you don't call this, all Component
+    ///data attached to killed entities will live in memory forever. In other
+    ///words, if you don't call this you'll have a memory leak.
+    ///
+    ///You can call it every frame, but it mutably acceses ALL storages,
+    ///iteratively, so no other System can be reaching into the ECS at the
+    ///time. If only a few Entities are killed per second or minute of runtime,
+    ///you can write some logic to call this once every few seconds or so and
+    ///that would probably be fine.
+    ///
+    ///This should probably be called at the end of a game tick(), or maybe at
+    ///the start of a game tick(). Anywhere but right in the middle, because
+    ///you'll operate on garbage data in your Systems. This won't be a
+    ///"problem" per-se, but it will result in wasted CPU cycles.
     pub fn maintain_ecs(&self) {
         let maint_fns = self
             .maintenance_fns
@@ -151,9 +170,8 @@ impl World {
             f(&self, entity);
         }
     }
-
-    ///Use to get thread-safe read-access to a single ECS Storage. If you need
-    ///access to multiple Storages, prefer req_multi_read_guards.
+    
+    ///Use to get thread-safe read-access to a single ECS Storage.
     ///## Panics
     ///Panics if you call on an unregistered Component type, T.
     pub fn req_read_guard<T: Component>(&self) -> ImmutableStorageGuard<T> {
@@ -203,9 +221,7 @@ impl World {
         None
     }
 
-    ///Use to get thread-safe write-access to a single ECS Storage. If you need
-    ///access to multiple Storages, prefer req_multi_write_guards().
-    ///
+    ///Use to get thread-safe write-access to a single ECS Storage.
     /// ## Panics
     /// Panics if you call on an unregistered Component type, T.
     pub fn req_write_guard<T: Component>(&self) -> MutableStorageGuard<T> {
