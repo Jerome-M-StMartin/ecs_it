@@ -9,7 +9,7 @@
 //!
 //! Component - A struct associated with a specific Entity.
 //!
-//! Storage - A vector of Components of a specific type.
+//! Storage - A collection of Components of a specific type.
 //!
 //! System - Logic that operates over one or more Components within one or more Storages.
 //!
