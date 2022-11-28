@@ -18,7 +18,7 @@ pub use storage_guard::{ImmutableStorageGuard, MutableStorageGuard};
 ///Used internally to provide abstraction over generically typed Storages
 ///to allow storing any kind of Storage<T> inside the World without having
 ///to generically type the World struct.
-//#[derive(Debug)]
+#[derive(Debug)]
 pub(crate) struct StorageBox {
     pub(crate) boxed: Arc<dyn Any + Send + Sync + 'static>,
 }

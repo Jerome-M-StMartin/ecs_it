@@ -16,16 +16,36 @@
 //! ## Summary
 //!
 //! This crate provides a very simple, thread-safe ECS which allows concurrent queries and
-//! mutations of Component Storages in a performant, blocking manner.
+//! mutations of Component Storages in a performant*, blocking manner. If you are familiar
+//! with the Python GIL(Global Interpreter Lock), then it may help your understanding to
+//! know that this library functions in a similar, but more parallel-friendly, way.
 //!
-//! By performant, I mean that this crate doesn't use spin-loops to cause a thread to wait for
-//! storage access. Internally it uses Mutex-Condvar pairs to provide functionality similar to a
-//! RwLock over each Storage individually. Threads are put to sleep while they wait via the
-//! rust std Condvar API.
+//! It is similar to the Python GIL in that the ECS World, the struct in which the entire
+//! implementation of this crate exists, is meant to be put into an Arc<> and cloned for any
+//! thread that needs acces to it. Internally, concurrent access is controlled via Mutexes.
 //!
-//! Given that each thread may access some subset of Storages, parallel access is possible if
-//! and only if the intersection of sets being accessed at any given moment between two or more
-//! threads is the null set.
+//! It is different from the GIL because these Mutexes lock individual sub-sections of the
+//! internal structure of the ECS architecture, allowing parallelism under specific constraints:
+//!
+//! Given that the set S is the intersection of Storages being concurrently accessed by any
+//! two specific threads:
+//!
+//! - Parallelism IS possible if S contains only immutable Storage accesses, or if it is the null
+//! set.
+//!
+//! - Parallelism is NOT possible if S contains any mutable Storage accesses.
+//!
+//! Because concurrency is implemented in a blocking manner, deadlocks ARE possible. It is up to
+//! the user of the crate to avoid these. Deadlocks are guaranteed to occur if you attempt to
+//! gain mutable access to any specific Storage in a thread which already holds ANY form of
+//! access to that Storage already, mutable or immutable. This should never be required anyway,
+//! but may happen if you make a mistake in scoping, or if you modify an algorithm to require
+//! mutable access and try to acquire both immutable and mutable access to the same Storage as
+//! a result.
+//!
+//! Deadlocks are possible if a thread releases the primary lock on the ECS World in-between
+//! trying to acquire mutable access to multiple Storages simultaneously. //TODO: User control of
+//! outer lock.
 //!
 //! There is no built-in System API. Implementing Systems is left up to the user of this crate.
 //!
@@ -39,6 +59,14 @@
 //! stored in an Arc<> for shared ownership between threads that need access to the ECS.
 //!
 //! Components can be any struct which is 'static + Sized + Send + Sync.
+//!
+//! *By performant, I mean that this crate doesn't use spin-loops to cause a thread to wait for
+//! storage access. Internally it uses Mutex-Condvar pairs to provide functionality similar to a
+//! RwLock over each Storage individually. Threads are put to sleep while they wait via the
+//! rust std Condvar API, and threads waiting for write-access are prioritized over those
+//! waiting for read-access. Thus, it is very easy to starve read-only threads if you are attemping
+//! to parallelize Systems. This crate is custom built specifically for a game that only uses three
+//! threads, with parallelism being of very low importance.
 //!
 //! # Demonstration of Use:
 //!
@@ -143,7 +171,7 @@
 //! isn't necessary in this example, but for an actual use-case it almost
 //! certainly is. Think of this as manually-triggered Garbage Collection.
 //! Failure to do this results in a memory leak, because all Components will
-//! remain in memory for "dead" Entities. Additionally, there will be non-
+//! remain in memory for "dead" Entities. Additionally, there will be a non-
 //! negligible detriment to performance of Systems you impliment because they
 //! will be iterating and operating over Components which are associated with
 //! "dead" Entities - a complete waste. Furthermore, you may see erroneous
