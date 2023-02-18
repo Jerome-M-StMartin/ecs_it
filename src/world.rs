@@ -9,29 +9,32 @@ use std::{
 
 use super::{
     entity::Entities,
-    storage::{ImmutableStorageGuard, MutableStorageGuard, Storage, StorageBox},
+    storage::{ImmutableStorageGuard, MutableStorageGuard, Storage},
+    warehouse::{StorageBox, Warehouse},
     Component,
     Entity, //usize
 };
 
-const STORAGE_POISON: &str = "storages mtx found poisoned in world.rs";
 const ENTITIES_POISON: &str = "Entities mtx found poisoned in world.rs";
 const MAINTENANCE_FN_POISON: &str = "maintenance_fns mtx found poisoned in world.rs";
+const WAREHOUSE_POISON: &str = "warehouse mtx found poisoned in world.rs";
 
 ///The core of the library; must instantiate (via World::new()).
 pub struct World {
     //Arc<World>
     pub(crate) entities: Mutex<Entities>,
-    storages: Mutex<HashMap<TypeId, StorageBox>>,
-    maintenance_fns: Mutex<Vec<Box<dyn Fn(&World, &Entity)>>>,
+    warehouse: Mutex<Warehouse>,
+    //storages: Mutex<HashMap<TypeId, StorageBox>>,
+    //maintenance_fns: Mutex<Vec<Box<dyn Fn(&World, &Entity)>>>,
 }
 
 impl World {
     pub fn new() -> Self {
         World {
             entities: Mutex::new(Entities::new()),
-            storages: Mutex::new(HashMap::new()),
-            maintenance_fns: Mutex::new(Vec::new()),
+            warehouse: Mutex::new(Warehouse::new()),
+            //storages: Mutex::new(HashMap::new()),
+            //maintenance_fns: Mutex::new(Vec::new()),
         }
     }
 
@@ -40,15 +43,18 @@ impl World {
     ///substance. Returns the entity ID, which is a usize, which
     ///is type-aliased as "Entity" in this library.
     pub fn create_entity(&self) -> Entity {
-        let id = self
+        //TODO
+        /*let id = self
             .entities
             .lock()
             .expect("entities mtx found poisoned in World::init_entity()")
-            .new_entity_id();
+            .create_entity();
 
-        id
+        id*/
+        0
     }
 
+    /* Do I need this? Not the ECS way to loop over Entities.
     /// Clones all existing Entities into an unsorted Vec, then returns an
     /// iterator over that Vec; does not consume the underlying data structure.
     ///
@@ -71,7 +77,7 @@ impl World {
     pub fn entity_iter<'a>(&self) -> impl Iterator<Item = Entity> {
         let entities_guard: MutexGuard<Entities> = self.entities.lock().expect(ENTITIES_POISON);
         entities_guard.vec().into_iter()
-    }
+    }*/
 
     ///When entities "die" or otherwise need to be removed from the game world,
     ///this is the fn to call. See: World::maintain_ecs()
@@ -89,14 +95,14 @@ impl World {
     pub fn register_component<T: Component>(&self) {
         let type_id = TypeId::of::<T>();
 
-        let mut storages_guard: MutexGuard<'_, HashMap<TypeId, StorageBox>> =
-            self.storages.lock().expect(STORAGE_POISON);
+        let mut warehouse_guard: MutexGuard<'_, Warehouse> =
+            self.warehouse.lock().expect(WAREHOUSE_POISON);
 
-        if storages_guard.contains_key(&type_id) {
+        if warehouse_guard.storages.contains_key(&type_id) {
             panic!("attempted to register the same component type twice");
         }
 
-        let should_be_none = storages_guard.insert(
+        let should_be_none = warehouse_guard.storages.insert(
             type_id,
             StorageBox {
                 boxed: Arc::new(Storage::<T>::new()),
@@ -114,9 +120,10 @@ impl World {
             mut_guard.remove(entity);
         }
 
-        let mut maint_fn_guard = self.maintenance_fns.lock().expect(MAINTENANCE_FN_POISON);
+        let mut warehouse_guard = self.warehouse.lock().expect(MAINTENANCE_FN_POISON);
+        let mut maint_fns = warehouse_guard.maintenance_functions;
 
-        maint_fn_guard.push(Box::new(maintain_storage::<T>));
+        maint_fns.push(Box::new(maintain_storage::<T>));
     }
 
     ///Adds a component of type T to the passed-in entity; replaces and returns
@@ -210,129 +217,109 @@ impl World {
     /// }
     ///```
     pub fn maintain_ecs(&self) {
-        let maint_fns = self.maintenance_fns.lock().expect(MAINTENANCE_FN_POISON);
+        let warehouse_guard = self.warehouse.lock().expect(MAINTENANCE_FN_POISON);
+        let maint_fns = warehouse_guard.maintenance_functions;
 
         let entities_guard = self.entities.lock().expect(ENTITIES_POISON);
 
-        let dead_ent_iter = entities_guard.dead_entities_iter();
-        let zipped = dead_ent_iter.zip(maint_fns.iter());
+        //let dead_ent_iter = entities_guard.dead_entities_iter();
+        //let zipped = dead_ent_iter.zip(maint_fns.iter());
 
         //TODO: Verify that this zip is what I want... is each f guaranteed
         //      to be correctly paired with its associated entity?
-        for (entity, f) in zipped {
+        //Later Me: positive that this was wrong. Going to need to change
+        //to work with vec Storages anyway.
+        /*for (entity, f) in zipped {
             f(&self, entity);
-        }
+        }*/
     }
 
     ///Use to get thread-safe read-access to a single ECS Storage.
     ///## Panics
     ///Panics if you call on an unregistered Component type, T.
     pub fn req_read_guard<T: Component>(&self) -> ImmutableStorageGuard<T> {
-        let type_id = TypeId::of::<T>();
+        //Acquire lock on the Warehouse
+        let warehouse = self.warehouse.lock().expect(WAREHOUSE_POISON);
 
-        //Request an ImmutableStorageGuard; blocks until read-access is allowed.
-        let storage_arc = self
-            .storages
-            .lock()
-            .expect(STORAGE_POISON)
-            .get(&type_id)
-            .unwrap_or_else(|| {
-                panic!("Attempted to request access to unregistered component storage");
-            })
-            .clone_storage();
+        //Clone the Arc<> that owns the Storage we're reading from
+        let storage_arc = warehouse.checkout_storage::<T>().unwrap();
 
+        //Instantiate and return a guard holding the Arc
         ImmutableStorageGuard::new(storage_arc)
-    }
-
-    ///Similar to req_read_guard() but returns Some(ImmutableStorageGuard) only
-    ///if the passed in Entity has a Component of type T. Else returns None.
-    pub fn req_read_guard_if<T: Component>(
-        &self,
-        ent: &Entity,
-    ) -> Option<ImmutableStorageGuard<T>> {
-        let type_id = TypeId::of::<T>();
-
-        //Request an ImmutableStorageGuard; blocks until read-access is allowed.
-        let storage_arc = self
-            .storages
-            .lock()
-            .expect(STORAGE_POISON)
-            .get(&type_id)
-            .unwrap_or_else(|| {
-                panic!("Attempted to request access to uninitialized component storage");
-            })
-            .clone_storage();
-
-        {
-            let guard = ImmutableStorageGuard::new(storage_arc);
-
-            if guard.get(ent).is_some() {
-                return Some(guard);
-            }
-        }
-
-        None
     }
 
     ///Use to get thread-safe write-access to a single ECS Storage.
     /// ## Panics
     /// Panics if you call on an unregistered Component type, T.
     pub fn req_write_guard<T: Component>(&self) -> MutableStorageGuard<T> {
-        let type_id = TypeId::of::<T>();
+        //Acquire lock on the Warehouse
+        let warehouse = self.warehouse.lock().expect(WAREHOUSE_POISON);
 
-        let storage_arc = self
-            .storages
-            .lock()
-            .expect(STORAGE_POISON)
-            .get(&type_id)
-            .unwrap_or_else(|| {
-                panic!("Attempted to request access to uninitialized component storage");
-            })
-            .clone_storage();
+        //Clone the Arc<> that owns the Storage we're reading from
+        let storage_arc = warehouse.checkout_storage::<T>().unwrap();
 
+        //Instantiate and return a guard holding the Arc
         MutableStorageGuard::new(storage_arc)
     }
 
-    ///Similar to req_write_guard() but returns Some(MutableStorageGuard) if
-    ///the passed-in Entity has a Component of type T. Else returns None.
-    pub fn req_write_guard_if<T: Component>(&self, ent: &Entity) -> Option<MutableStorageGuard<T>> {
-        let type_id = TypeId::of::<T>();
-
-        let storage_arc = self
-            .storages
-            .lock()
-            .expect(STORAGE_POISON)
-            .get(&type_id)
-            .unwrap_or_else(|| {
-                panic!("Attempted to request access to uninitialized component storage");
-            })
-            .clone_storage();
-
-        {
-            let guard = MutableStorageGuard::new(storage_arc);
-
-            if guard.get_mut(ent).is_some() {
-                return Some(guard);
-            }
-        }
-
-        None
-    }
-
-    ///Use this when you intend to request access to many Storages in sequence.
-    ///Most Systems should probably need this. The returned ManyGuard holds the
-    ///Mutex lock over the collection all Storages are held within, so by using
-    ///the API on the ManyGuard you avoid losing that outer lock in-between
-    ///every call to req_?_guard() and/or req_?_guard_if(). Through this use,
+    ///TODO: Change API on World to only have one way to get StorageGuards,
+    ///something like: Warehouse<T0, T1, T2, ...>() -> (Storage<T0>, ...) {...}
+    ///
+    ///Seems like this will require a macro, if there is a way to pass an
+    ///arbitrary number of generic types to a macro...let's find out.
+    ///
+    ///... Through this use,
     ///you prevent deadlocks that may occur while two threads wait to acquire
     ///one or more StorageGuards currently held be the other, in the case
     ///where either thread needs multiple StorageGuards simultaneously.
-    pub fn req_many_guards(&self) -> ManyGuard {
-        //TODO: doctests
-        let storages_map_guard = self.storages.lock().expect(STORAGE_POISON);
 
-        ManyGuard::new(storages_map_guard)
+    //Accepts a tuple of types,
+    //Returns a tuple of StorageGuard<T>'s
+    //where T is each of the given types.
+    //e.g. warehouse_fetch!(TypeA, TypeB, TypeC) returns:
+    //(a: StorageGuard<TypeA>, b: StorageGuard<TypeB>, c: StorageGuard<TypeC>)
+    macro_rules! warehouse_fetch {
+        ($a_type:ty) => {
+            generically_typed_fn::<$a_type>()
+        };
+        ($final_tuple:expr) => {
+            $final_tuple
+        }
+        ($first_type:ty,  $($next_type:ty), +) => {{
+            let guard = generically_typed_fn::<$first_type>();
+            warehouse_fetch!((guard), $($next_type), +)
+        }}
+        ($old_tuple:expr, $($type_n:ty), +) => {{
+            let ($element_0:expr, $($element_n:expr,)* i,) = $old_tuple;
+            let guard = generically_typed_fn::<$type_n>();
+            ($old_tuple, $($type_n,)+)
+        }}
     }
+    
+    //don't think I need this, it creates a new tuple internally anyway
+    //so no benefit it seems
+    //Accepts tuple of types on which you wish to impl a TuplePush trait.
+    macro_rules! impl_tuple_push {
+        (()) => {};
+        (($element_0:ident, $(, $element_n:ident)*)) => {
+            //Definition of TuplePush Trait
+            impl<$type_0, $($type_n,)* T> TuplePush<T> for ($type_0, $($type_n,)*) {
+                type OutputTuple = ($type_0, $($type_n,)* T,);
+
+                fn push(self, t: T) -> Self::OutputTuple {
+                    let ($type0, $($type_n,)*) = self;
+                    ($type_0, $($type_n,)* t,)
+                }
+            }
+        }
+    }
+
+    /*pub fn access_warehouse(&self) -> MutexGuard<Warehouse> {
+        //TODO: doctests
+        let warehouse_guard = self.warehouse.lock().expect(WAREHOUSE_POISON);
+
+        warehouse_guard
+    }*/
 }
 
 #[derive(Debug)]

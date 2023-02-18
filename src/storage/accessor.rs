@@ -36,7 +36,7 @@ impl Accessor {
 ///Internal to Accessor structs.
 #[derive(Debug)]
 pub struct AccessorState {
-    pub readers: u16, // num of currently reading readers, NOT waiting/slept readers
+    pub readers: u16, //num of currently reading readers, NOT waiting/slept readers
     pub read_allowed: bool,
     pub write_allowed: bool,
     pub writers_waiting: u16, //slept writers, NOT current writers (which is always 0..1)

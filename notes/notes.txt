@@ -1,0 +1,79 @@
+Goal: Change storages to Vecs from HashMaps.
+
+ToDo:
+//Do it the 1b way, only do the 1a way if 1b fails for some reaosn.
+1a.) InnerStorage type from (map, vec) to just vec.
+	Create single global HashMap<Entity, Index>.
+Why:
+If the intent is to be able to zip vecs together, than index == X needs to
+be the index of EntityX accross all storages, so they all need to be dependent
+on a single source-of-truth HashMap with Entities as Keys and Indices as
+Values.
+
+1b.) Instead of 1a: (I like this a lot more.)
+Tightly couple Entity generation to Storages.
+e.g. When creating an Entity,
+First check if there is a dead Entity whose ID you could use. This Entity will
+already have an available idx in all Storages, which will all be filled with
+"None". If there is no dead entity, then generate a new one equal to any
+Storage.length, then increase the size of all Storage Vecs by 1.
+Steps:
+	- Implement a Storages::length() -> &size method. It's important that this
+does not require acquiring the Storages Global Mutex. Instead, a mutex lock
+acquire should only occur when we add a new entity while there are no
+dead_entities available, and therefor must increase the length of all
+Storage vecs.
+	- Implement dead entity cleanup: I see three ways, lazy on a per-storage
+	  basis, lazy on a warehouse basis, or non-lazy/immediate on a warehouse
+	  basis.
+	- - Lazy on a per-storage basis:
+	Whenever a storage is successfully accessed, it first checks if its length
+	is equal to the number of living entities + the number of dead entities.
+	If not (which means dead_entities is empty), we need a new slot in the
+	vec, which means we need to do a req_write_access() and make it so. If
+	we found this state on a read_access, we'd need to drop the read_guard
+	and get a write_guard, do the vec lengthening, then drop the write, then
+	acquire the read-lock we originally had again. Annoying af and hurts our
+	read-access efficiency.
+
+	- - Lazy on an entire warehouse basis, the "garbage collector" way:
+	What if I just used a Dead{} component and a MaintainECS system? Downside I
+	see already is that this system would need concurrent write access on every
+	storage in the warehouse. Could all be done in parallel though... hmm.
+	Upside is that it provides an in-library example of how to write a system.
+
+	- - Immediate way:
+	When any system finds a dead entity, ...idk fuck it, let's not do it this
+	way. It's bad and requires more closures. Complexity cost is too high.
+
+2.) Change StorageGuard API to work with new inner structure.
+
+3.) Define "the way" to write System logic in the lib.rs doctests.
+
+4.) Figure out way to None-ify idx associated with a dead Entity across all
+Storages. Right now... seems like making my own garbage collector, but there
+may be an easier way: What if I used "Intent-Components"? Maybe "Trigger
+Component" is more accurate - a Component with no data but which triggers some
+logic only once before it is removed from the Storage.
+Anyway, the idea would be to use a System to clean dead entities out of the
+storages.
+Requirements:
+- Run this system first each frame.
+- Put dead Entity in Entities::dead_entities() collection.
+- When creating new Entities, always pull from dead_entities() if there is one
+  avilable rather than making a "new" Entity, which would also increase the
+  length of all Storage vecs. 
+
+
+Why HashMap Storages Don't Work:
+A.) Cannot zip storages because HashMap.values() returns the vals in arbitrary order.
+Being able to zip arbitrary storages together and iterate through the
+resulting zipped iterator is core to "the ECS way". With maps, access is done
+through iterating over Entities, which is not correct. The ECS Way is to
+iterate over Components, not the things the Components are associated with.
+B.) Difficult to implement "MaybeHasComponent" logic, wheras with zipped vecs
+the functionality is basically free. Remember, the new InnerStorage type is
+Vec<Option<Component>>, so if we find a None, that means that the Entity
+associated with this idx of the vec does not have a Component of the type this
+Storage holds.
+C.) Performance goes brrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr

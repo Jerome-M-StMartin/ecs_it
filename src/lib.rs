@@ -183,7 +183,7 @@
 //!
 //! #How to implement a System
 //!```
-//! //TODO: Finish this doctest after writing System API
+//! //TODO: Finish this doctest BEFORE writing System API; revise after.
 //! use core::fmt::Error;
 //! use std::any::Any;
 //! use ecs_it::*;
@@ -215,30 +215,70 @@
 //!     fn run(world: &world::World) -> Result<(), Error> {
 //!
 //!         //1.) Acquire global storage lock
-//!         let guards = world.req_many_guards();
+//!         let global_guard = world.req_many_guards();
 //!
-//!         //2.) Acquire storages needed for this system
+//!         //2.) Acquire locks on the storages needed for this system
 //!         let (mut_health_storage, mut_damage_storage) = (
 //!             guards.req_write_guard::<Health>(&world),
-//!             guards.req_write_guard::<Damage>(&world)
+//!             guards.req_write_guard::<Damage>(&world),
+//!             guards.req_read_guard::<Armor>(&world),
+//!             guards.req_read_guard::<Movement>(&world),
 //!         );
 //!
-//!         guards.drop(); //Release global storage lock.
+//!         global_guard.drop(); //Release global storage lock.
 //!
-//!         //3.) Get entities
+//!         //3.) Zip the storages needed to execute the the logic of this
+//!         //    System, then iterate over them knowing that at each step
+//!         //    of the iterator, each zipped Component is attached the
+//!         //    the same single specific Entity.
+//!         let mut health_components_iter = mut_health_storage.iter_mut();
+//!         let mut damage_components_iter = mut_health_storage.iter_mut();
+//!         let armor_components_iter = armor_storage.iter();
+//!         let movement_component_iter = movement_storage.iter();
+//!         //would like to make a custom zip_storages!(...) macro,
+//!         //but for now, I'll use the itertools crate.
+//!         let zipped = itertools::zip!(health_components_iter,
+//!                                      damage_components_iter,
+//!                                      armor_components_iter,
+//!                                      movement_storage.iter);
+//!
+//!         //Oh, I also need a way to express "maybe has component X",
+//!         //So we can still match on other things. Wait... this is
+//!         //built in. Every entity will always be looped over in EVERY
+//!         //system, because even when every one of the zipped storages
+//!         //yeilds a None element for any given Entity, that element is
+//!         //a Some(None) to the iterator, so it will not break out of the
+//!         //iteration loop until the end of the storage vec.
+//!
+//!         for (health, damage, armor, movement) in zipped.iter() {
+//!             
+//!         }
+//!
+//!         /*
+//!         //X.) Get entities <-nope, not the ECS way
 //!         let entities = world.entity_iter();
 //!
-//!         //4.) Loop through entities; perform system logic on storage data
+//!         X.) Loop through entities; perform system logic on storage data
 //!         for entity in entities {
 //!             //TODO:
 //!             // API needs a way to respond Yes, Maybe, No to
 //!             // the question: "does this Ent have comonent X?"
-//!             /*
 //!
 //!             Wait, no... this is wrong.
 //!             The point of an ECS is to loop through the components...
 //!             Uh oh. I vaguely remember being okay with this,
 //!             but right now I am wary.
+//!
+//!             The ECS Way: Loop through Components, not Entities.
+//!             The user-facing functionality of the API is intended to
+//!             be a zip of all Storages required by any given System,
+//!             with the idea that index n of each storage contains
+//!             an Option<Component> for a single specific entity.
+//!             With hashmaps, the way to get an iterator is .values(),
+//!             which returns an interator *in arbitrary order*, this
+//!             cannot work. Therefor, Storages must be Vecs.
+//!
+//!             Confirmed that Vec.iter() preserves order.
 //!             */
 //!         }
 //!         
@@ -248,11 +288,11 @@
 //!
 //!```
 
-//use std::any::Any;
-
 mod entity;
+mod error;
 mod storage;
 mod system;
+mod warehouse;
 pub mod world;
 
 pub type Entity = usize;

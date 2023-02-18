@@ -1,22 +1,27 @@
-//--1/24/23
-//
-// At some point, I changed the storages to HashMap form. I forgot why.
-// Sounds fun to find out why again.
+//Jerome M. St.Martin
+//June 21, 2022
+
+//-----------------------------------------------------------------------------
+//-------------------------- ECS Component Storages ---------------------------
+//-----------------------------------------------------------------------------
 
 use std::cell::UnsafeCell;
 
 use super::Component;
-
 use accessor::{Accessor, AccessorState};
 pub use storage_guard::{ImmutableStorageGuard, MutableStorageGuard};
 
 mod accessor;
 mod storage_guard;
 
+pub type InnerStorage<T> = Vec<Option<T>>;
+
+///Entities are keys to a map which holds the indices where any key-entity's,
+///relevant component is stored in the Vec.
 #[derive(Debug)]
 pub(crate) struct Storage<T> {
     accessor: Accessor,
-    inner: UnsafeCell<Vec<T>>,
+    inner: UnsafeCell<InnerStorage<T>>,
 }
 
 unsafe impl<T> Sync for Storage<T> where T: Component {}
@@ -26,11 +31,9 @@ where
     T: Component,
 {
     pub(crate) fn new() -> Self {
-        let new_vec = Vec::new();
-
         Storage {
             accessor: Accessor::new(),
-            inner: UnsafeCell::new(new_vec),
+            inner: UnsafeCell::new(Vec::new()),
         }
     }
 
@@ -82,12 +85,12 @@ where
     }
 
     ///Called internally only by ImmutableStorageGuard API.
-    pub(super) fn unsafe_borrow(&self) -> &Vec<T> {
+    pub(super) fn unsafe_borrow(&self) -> &InnerStorage<T> {
         unsafe { &*self.inner.get() }
     }
 
     ///Called internally only by MutableStorageGuard API.
-    pub(super) fn unsafe_borrow_mut(&self) -> &mut Vec<T> {
+    pub(super) fn unsafe_borrow_mut(&self) -> &mut InnerStorage<T> {
         unsafe { &mut *self.inner.get() }
     }
 

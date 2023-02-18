@@ -1,0 +1,85 @@
+//Paste into play.rust-lang.org to see it run.
+
+//WARNING, do not use as-is, as this is a copy-paste from the itertools crate,
+//this is simply a learning tool. Write your own or include the package.
+//ADDITIONALLY, the macro has been modified to run in the playground, it
+//may break due to an alias collision without the original crate:: specifiers.
+
+
+#![allow(unused)]
+use std::time::Instant;
+macro_rules! izip {
+    // @closure creates a tuple-flattening closure for .map() call. usage:
+    // @closure partial_pattern => partial_tuple , rest , of , iterators
+    // eg. izip!( @closure ((a, b), c) => (a, b, c) , dd , ee )
+    ( @closure $p:pat => $tup:expr ) => {
+        |$p| $tup
+    };
+
+    // The "b" identifier is a different identifier on each recursion level thanks to hygiene.
+    ( @closure $p:pat => ( $($tup:tt)* ) , $_iter:expr $( , $tail:expr )* ) => {
+        izip!(@closure ($p, b) => ( $($tup)*, b ) $( , $tail )*)
+    };
+
+    ($first:expr $(,)*) => {
+        IntoIterator::into_iter($first)
+    };
+
+    // binary
+    ($first:expr, $second:expr $(,)*) => {
+        izip!($first)
+            .zip($second)
+    };
+
+    // n-ary where n > 2
+    ( $first:expr $( , $rest:expr )* $(,)* ) => {
+        izip!($first)
+            $(
+                .zip($rest)
+            )*
+            .map(
+                izip!(@closure a => (a) $( , $rest )*)
+            )
+    };
+}
+
+macro_rules! n_zip {
+    //Base/Unary Case
+    ($iter: expr) => {$iter};
+
+    //Binary Case
+    ($iter_0: expr, $($iter_n: expr), +) => {
+        $iter_0.zip(
+            n_zip!($($iter_n), +)
+        ).map(|(x, (y))| (x, y))
+    }
+
+    //N-ary Case
+}
+
+fn main() {
+    let vec_start = Instant::now();    
+    
+    let a = vec![0; 10];
+    let b = vec![1; 10];
+    let mut c = vec![3; 10];
+    let d = vec![3; 10];
+    let e = vec![4; 10];
+    let f = vec![5; 10];
+    let g = vec![6; 10];
+    let h = vec![7; 10];
+    
+    let zip_start = Instant::now();
+    let zipped = izip!(a.iter(), b.iter(), c.iter_mut(), d, e, f, g, h,,,,);
+    
+    let print_start = Instant::now();
+    for n in zipped {
+        print!("{:?}", n);
+    }
+    
+    let end = Instant::now();
+    
+    println!("\nTime to create vecs: {:?}", zip_start - vec_start);
+    println!("\nTime to zip: {:?}", print_start - zip_start);
+    println!("\nTime to print: {:?}", end - print_start);
+}
