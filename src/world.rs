@@ -49,7 +49,7 @@ impl World {
         id
     }
 
-    /// Clones all existing Entities into an UNSORTED Vec, then returns an
+    /// Clones all existing Entities into an unsorted Vec, then returns an
     /// iterator over that Vec; does not consume the underlying data structure.
     ///
     /// Reminder: an Entity is just a usize - nothing more.
@@ -75,15 +75,15 @@ impl World {
     }
 
     ///When entities "die" or otherwise need to be removed from the game world,
-    ///this is the fn to call. See: World::ecs_maintain()
+    ///this is the method to call. See: World::ecs_maintain()
     pub fn rm_entity(&self, e: Entity) {
         self.entities.lock().expect(ENTITIES_POISON).rm_entity(e);
     }
 
     ///Component types must be registered with the ECS before use. This fn also
-    ///creates an FnMut() based for each registered component, which is used
-    ///internally to maintain the ecs. (This is why world.maintain() must be
-    ///called periodically.)
+    ///creates a Fn() for each registered component, which is used internally
+    ///to maintain the ecs. (This is why world.maintain() must be called
+    ///periodically.)
     ///
     /// ## Panics
     /// Panics if you register the same component type twice.
@@ -120,7 +120,7 @@ impl World {
         maint_fn_guard.push(Box::new(maintain_storage::<T>));
     }
 
-    ///Adds a component of type T to the passed-in entityr; replaces and returns
+    ///Adds a component of type T to the passed-in entity; replaces and returns
     ///the T that was already here, if any.
     pub fn add_component<T: Component>(&self, ent: Entity, comp: T) -> Option<T> {
         let mut storage_guard = self.req_write_guard::<T>(); //This may block.
@@ -143,13 +143,13 @@ impl World {
     ///words, if you don't call this you'll have a memory leak.
     ///
     ///You can call it every frame, but it mutably acceses ALL storages,
-    ///iteratively, so no other System can be reaching into the ECS at the
-    ///time. If only a few Entities are killed per second or minute of runtime,
-    ///you can write some logic to call this once every few seconds or so and
-    ///that would probably be fine.
+    ///iteratively, so no other System can reach into the ECS at the time. If
+    ///only a few Entities are killed per second or minute of runtime, you can
+    ///write some logic to call this once every few seconds or so and that
+    ///would probably be fine.
     ///
-    ///This should probably be called at the end of a game tick(), or maybe at
-    ///the start of a game tick(). Anywhere but right in the middle, because
+    ///This probably be called at the end of a game tick(), or maybe at the
+    ///start of a game tick(). Anywhere but right in the middle, because
     ///you'll operate on garbage data in your Systems. This won't be a
     ///"problem" per-se, but it will result in wasted CPU cycles.
     ///
@@ -316,5 +316,55 @@ impl World {
         }
 
         None
+    }
+
+    ///Use this when you intend to request access to many Storages in sequence.
+    ///Most Systems should probably need this. The returned ManyGuard holds the
+    ///Mutex lock over the collection all Storages are held within, so by using
+    ///the API on the ManyGuard you avoid losing that outer lock in-between
+    ///every call to req_?_guard() and/or req_?_guard_if(). Through this use,
+    ///you prevent deadlocks that may occur while two threads wait to acquire
+    ///one or more StorageGuards currently held be the other, in the case
+    ///where either thread needs multiple StorageGuards simultaneously.
+    pub fn req_many_guards(&self, end: &Entity) -> ManyGuard {
+        //TODO: doctests
+        let storages_map_guard = self.storages.lock().expect(STORAGE_POISON);
+
+        ManyGuard::new(storages_map_guard)
+    }
+}
+
+#[derive(Debug)]
+pub struct ManyGuard<'a> {
+    guarded: MutexGuard<'a, HashMap<TypeId, StorageBox>>,
+}
+
+impl<'a> ManyGuard<'a> {
+    pub(crate) fn new(guarded: MutexGuard<'a, HashMap<TypeId, StorageBox>>) -> Self {
+        ManyGuard { guarded }
+    }
+
+    pub fn req_read_guard<T: Component>(&self, world: &World) -> ImmutableStorageGuard<T> {
+        world.req_read_guard()
+    }
+
+    pub fn req_read_guard_if<T: Component>(
+        &self,
+        world: &World,
+        ent: &Entity,
+    ) -> Option<ImmutableStorageGuard<T>> {
+        world.req_read_guard_if(ent)
+    }
+
+    pub fn req_write_guard<T: Component>(&self, world: &World) -> MutableStorageGuard<T> {
+        world.req_write_guard()
+    }
+
+    pub fn req_write_guard_if<T: Component>(
+        &self,
+        world: &World,
+        ent: &Entity,
+    ) -> Option<MutableStorageGuard<T>> {
+        world.req_write_guard_if(ent)
     }
 }
