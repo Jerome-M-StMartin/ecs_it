@@ -70,20 +70,19 @@ impl World {
     ///```
     pub fn entity_iter(&self) -> impl Iterator<Item = Entity> {
         let entities_guard: MutexGuard<Entities> = self.entities.lock().expect(ENTITIES_POISON);
-
         entities_guard.vec().into_iter()
     }
 
     ///When entities "die" or otherwise need to be removed from the game world,
-    ///this is the method to call. See: World::ecs_maintain()
+    ///this is the fn to call. See: World::maintain_ecs()
     pub fn rm_entity(&self, e: Entity) {
         self.entities.lock().expect(ENTITIES_POISON).rm_entity(e);
     }
 
     ///Component types must be registered with the ECS before use. This fn also
-    ///creates a Fn() for each registered component, which is used internally
-    ///to maintain the ecs. (This is why world.maintain() must be called
-    ///periodically.)
+    ///creates an FnMut() for each registered component, which is used
+    ///internally to maintain the ecs. (This is why world.maintain_ecs() must be
+    ///called periodically.)
     ///
     /// ## Panics
     /// Panics if you register the same component type twice.
@@ -106,7 +105,7 @@ impl World {
 
         assert!(should_be_none.is_none());
 
-        //Generate Fn to be called in world.maintain() & store it in World
+        //Generate Fn to be called in world.maintain_ecs() & store it in World
         fn maintain_storage<T>(world: &World, entity: &Entity)
         where
             T: Component,
@@ -204,7 +203,7 @@ impl World {
     /// let guard = world.req_read_guard::<DummyComponent>();
     ///
     /// //This should only print the DummyComponent associated with the living
-    /// //Entity "ent2". All components associated with dead Entities is now
+    /// //Entity "ent2". All components associated with dead Entities are now
     /// //dropped from memory.
     /// for component in guard.iter() {
     ///     println!("{:?}", component);
@@ -215,9 +214,11 @@ impl World {
 
         let entities_guard = self.entities.lock().expect(ENTITIES_POISON);
 
-        let dead_ent_inter = entities_guard.dead_iter();
-        let zipped = dead_ent_inter.zip(maint_fns.iter());
+        let dead_ent_iter = entities_guard.dead_iter();
+        let zipped = dead_ent_iter.zip(maint_fns.iter());
 
+        //TODO: Verify that this zip is what I want... is each f guaranteed
+        //      to be correctly paired with its associated entity?
         for (entity, f) in zipped {
             f(&self, entity);
         }
