@@ -18,7 +18,7 @@
 //! This crate provides a very simple, thread-safe ECS which allows concurrent queries and
 //! mutations of Component Storages in a performant*, blocking manner. If you are familiar
 //! with the Python GIL(Global Interpreter Lock), then it may help your understanding to
-//! know that this library functions in a similar, but more parallel-friendly, way.
+//! know that this library functions in a similar, and slightly more parallel-friendly, way.
 //!
 //! It is similar to the Python GIL in that the ECS World, the struct in which the entire
 //! implementation of this crate exists, is meant to be put into an Arc<> and cloned for any
@@ -231,8 +231,15 @@
 //!         //4.) Loop through entities; perform system logic on storage data
 //!         for entity in entities {
 //!             //TODO:
-//!             // API needs a way to ask for Yes, Maybe, No to
-//!             // "does this Ent have comonent X?"
+//!             // API needs a way to respond Yes, Maybe, No to
+//!             // the question: "does this Ent have comonent X?"
+//!             /*
+//!
+//!             Wait, no... this is wrong.
+//!             The point of an ECS is to loop through the components...
+//!             Uh oh. I vaguely remember being okay with this,
+//!             but right now I am wary.
+//!             */
 //!         }
 //!         
 //!         //5.) TheEnd

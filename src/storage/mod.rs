@@ -1,49 +1,22 @@
-//Jerome M. St.Martin
-//June 21, 2022
+//--1/24/23
+//
+// At some point, I changed the storages to HashMap form. I forgot why.
+// Sounds fun to find out why again.
 
-//-----------------------------------------------------------------------------
-//-------------------------- ECS Component Storages ---------------------------
-//-----------------------------------------------------------------------------
+use std::cell::UnsafeCell;
 
-use std::{any::Any, cell::UnsafeCell, collections::HashMap, sync::Arc};
-
-use super::{Component, Entity};
-
-mod accessor;
-mod storage_guard;
+use super::Component;
 
 use accessor::{Accessor, AccessorState};
 pub use storage_guard::{ImmutableStorageGuard, MutableStorageGuard};
 
-///Used internally to provide abstraction over generically typed Storages
-///to allow storing any kind of Storage<T> inside the World without having
-///to generically type the World struct.
-#[derive(Debug)]
-pub(crate) struct StorageBox {
-    pub(crate) boxed: Arc<dyn Any + Send + Sync + 'static>,
-}
+mod accessor;
+mod storage_guard;
 
-impl StorageBox {
-    pub(crate) fn clone_storage<T: Component>(&self) -> Arc<Storage<T>> {
-        let arc_any = self.boxed.clone();
-        arc_any.downcast::<Storage<T>>().unwrap_or_else(|e| {
-            panic!("{:?}", e);
-        })
-    }
-}
-
-pub(crate) trait AnyStorage {
-    fn rm_component(&self, e: &Entity);
-}
-
-//-----------------------------------------------------------------------------
-
-///Used internally to store components of a single type, and to control both
-///mutable and immutable access to said storage.
 #[derive(Debug)]
 pub(crate) struct Storage<T> {
     accessor: Accessor,
-    inner: UnsafeCell<HashMap<Entity, T>>,
+    inner: UnsafeCell<Vec<T>>,
 }
 
 unsafe impl<T> Sync for Storage<T> where T: Component {}
@@ -53,11 +26,11 @@ where
     T: Component,
 {
     pub(crate) fn new() -> Self {
-        let new_map = HashMap::new();
+        let new_vec = Vec::new();
 
         Storage {
             accessor: Accessor::new(),
-            inner: UnsafeCell::new(new_map),
+            inner: UnsafeCell::new(new_vec),
         }
     }
 
@@ -109,12 +82,12 @@ where
     }
 
     ///Called internally only by ImmutableStorageGuard API.
-    pub(super) fn unsafe_borrow(&self) -> &HashMap<Entity, T> {
+    pub(super) fn unsafe_borrow(&self) -> &Vec<T> {
         unsafe { &*self.inner.get() }
     }
 
     ///Called internally only by MutableStorageGuard API.
-    pub(super) fn unsafe_borrow_mut(&self) -> &mut HashMap<Entity, T> {
+    pub(super) fn unsafe_borrow_mut(&self) -> &mut Vec<T> {
         unsafe { &mut *self.inner.get() }
     }
 

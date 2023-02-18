@@ -1,16 +1,4 @@
-//Jerome M. St.Martin
-//June 22, 2022
-
-//-----------------------------------------------------------------------------
-//---------------------- Provides Thread-Safe Access to -----------------------
-//-------------------------- an Inner Arc<Storage> ----------------------------
-//------------------------------ Until Dropped --------------------------------
-//-----------------------------------------------------------------------------
-
-use std::{
-    collections::{hash_map::Entry, HashMap},
-    sync::Arc,
-};
+use std::sync::Arc;
 
 use super::super::{Component, Entity};
 use super::Storage;
@@ -32,16 +20,16 @@ where
         ImmutableStorageGuard { guarded }
     }
 
-    pub fn get(&self, e: &Entity) -> Option<&T> {
+    pub fn get(&self, e: Entity) -> Option<&T> {
         self.guarded.unsafe_borrow().get(e)
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &T> {
-        self.guarded.unsafe_borrow().values()
+        self.guarded.unsafe_borrow().iter()
     }
 
     ///Favor using iter() or get() if at all possible.
-    pub fn raw(&self) -> &HashMap<Entity, T> {
+    pub fn raw(&self) -> &Vec<T> {
         self.guarded.unsafe_borrow()
     }
 }

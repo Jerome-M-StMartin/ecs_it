@@ -35,13 +35,10 @@ impl Entities {
         entity_id
     }
 
-    ///This returns a boolean corresponding to whether the entity existed or not.
-    ///If it existed, it was removed and this will return true; else false.
     ///If the entity exists, removes it and returns true;
     ///if the entity did not exist, returns false.
     ///Attempting to remove an Entity that doesn't exist won't panic.
     pub(crate) fn rm_entity(&mut self, ent: Entity) -> bool {
-        //Panics if ent doesn't exist.
         if let Some(entity_to_rm) = self.active_entities.take(&ent) {
             self.dead_entities.push(entity_to_rm);
             return true;
