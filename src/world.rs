@@ -68,7 +68,7 @@ impl World {
     ///     println!("i: {}, entity: {}", i, ent);
     /// }
     ///```
-    pub fn entity_iter(&self) -> impl Iterator<Item = Entity> {
+    pub fn entity_iter<'a>(&self) -> impl Iterator<Item = Entity> {
         let entities_guard: MutexGuard<Entities> = self.entities.lock().expect(ENTITIES_POISON);
         entities_guard.vec().into_iter()
     }
@@ -214,7 +214,7 @@ impl World {
 
         let entities_guard = self.entities.lock().expect(ENTITIES_POISON);
 
-        let dead_ent_iter = entities_guard.dead_iter();
+        let dead_ent_iter = entities_guard.dead_entities_iter();
         let zipped = dead_ent_iter.zip(maint_fns.iter());
 
         //TODO: Verify that this zip is what I want... is each f guaranteed
@@ -327,7 +327,7 @@ impl World {
     ///you prevent deadlocks that may occur while two threads wait to acquire
     ///one or more StorageGuards currently held be the other, in the case
     ///where either thread needs multiple StorageGuards simultaneously.
-    pub fn req_many_guards(&self, end: &Entity) -> ManyGuard {
+    pub fn req_many_guards(&self) -> ManyGuard {
         //TODO: doctests
         let storages_map_guard = self.storages.lock().expect(STORAGE_POISON);
 

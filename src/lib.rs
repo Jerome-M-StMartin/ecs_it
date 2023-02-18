@@ -178,14 +178,74 @@
 //! behaviour due to Systems interacting with Entity data that should no
 //! longer exist.
 //! */
-
 //! world.maintain_ecs();
+//!```
+//!
+//! #How to implement a System
+//!```
+//! //TODO: Finish this doctest after writing System API
+//! use core::fmt::Error;
+//! use std::any::Any;
+//! use ecs_it::*;
+//!
+//!//Define Components
+//! struct Health {
+//!     value: usize,
+//! }
+//! impl Component for Health {}
+//!
+//! struct Damage(usize);
+//! impl Component for Damage {}
+//!
+//!//Instantiate the ECS
+//! let world = world::World::new();
+//!
+//! //Register all components
+//! world.register_component::<Health>();
+//! world.register_component::<Damage>();
+//!
+//! //Create Entities
+//! let goblin_0 = world.create_entity();
+//! goblin_0.add_component( Health { value: 3 } );
+//! goblin_0.add_component( Damage(2) );
+//!
+//!//Define Systems logic
+//! struct ASystem;
+//! impl System for ASystem {
+//!     fn run(world: &world::World) -> Result<(), Error> {
+//!
+//!         //1.) Acquire global storage lock
+//!         let guards = world.req_many_guards();
+//!
+//!         //2.) Acquire storages needed for this system
+//!         let (mut_health_storage, mut_damage_storage) = (
+//!             guards.req_write_guard::<Health>(&world),
+//!             guards.req_write_guard::<Damage>(&world)
+//!         );
+//!
+//!         guards.drop(); //Release global storage lock.
+//!
+//!         //3.) Get entities
+//!         let entities = world.entity_iter();
+//!
+//!         //4.) Loop through entities; perform system logic on storage data
+//!         for entity in entities {
+//!             //TODO:
+//!             // API needs a way to ask for Yes, Maybe, No to
+//!             // "does this Ent have comonent X?"
+//!         }
+//!         
+//!         //5.) TheEnd
+//!     }
+//! }
+//!
 //!```
 
 //use std::any::Any;
 
 mod entity;
 mod storage;
+mod system;
 pub mod world;
 
 pub type Entity = usize;

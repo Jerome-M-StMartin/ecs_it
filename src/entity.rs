@@ -36,7 +36,9 @@ impl Entities {
     }
 
     ///This returns a boolean corresponding to whether the entity existed or not.
-    ///If it existed, it was removed and this will return true, else false.
+    ///If it existed, it was removed and this will return true; else false.
+    ///If the entity exists, removes it and returns true;
+    ///if the entity did not exist, returns false.
     ///Attempting to remove an Entity that doesn't exist won't panic.
     pub(crate) fn rm_entity(&mut self, ent: Entity) -> bool {
         //Panics if ent doesn't exist.
@@ -48,11 +50,11 @@ impl Entities {
         false
     }
 
-    pub(crate) fn living_iter(&self) -> Iter<'_, Entity> {
+    pub(crate) fn living_entities_iter(&self) -> Iter<'_, Entity> {
         self.active_entities.iter()
     }
 
-    pub(crate) fn dead_iter(&self) -> std::slice::Iter<'_, Entity> {
+    pub(crate) fn dead_entities_iter(&self) -> std::slice::Iter<'_, Entity> {
         self.dead_entities.iter()
     }
 
@@ -60,8 +62,8 @@ impl Entities {
         let mut vec = Vec::with_capacity(self.active_entities.len());
         let iter = self.active_entities.iter();
 
-        for ent in iter {
-            vec.push(ent.clone());
+        for &ent in iter {
+            vec.push(ent);
         }
 
         vec
