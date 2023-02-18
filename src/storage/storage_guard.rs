@@ -17,7 +17,7 @@ use super::Storage;
 
 ///What you get when you ask the ECS for access to a Storage via req_read_access().
 ///These should NOT be held long-term. Do your work then allow this struct to drop, else
-///you will starve all other threads seeking write-access to the thing this guards.
+///you will starve all threads seeking write-access to the Storage this guards.
 #[derive(Debug)]
 pub struct ImmutableStorageGuard<T: Component> {
     guarded: Arc<Storage<T>>,
@@ -48,7 +48,7 @@ where
 
 ///What you get when you ask the ECS for access to a Storage via req_write_access().
 ///These should NOT be held long-term. Do your work then allow this struct to drop, else
-///you will starve all other threads seeking write-access to the thing this guards.
+///you will starve all other threads seeking write-access to the Storage this guards.
 #[derive(Debug)]
 pub struct MutableStorageGuard<T: Component> {
     guarded: Arc<Storage<T>>,
@@ -80,18 +80,13 @@ where
         self.guarded.unsafe_borrow_mut().values_mut()
     }
 
+    ///Favor using other fns in this API over this if at all possible.
     pub fn raw_mut(&self) -> &mut HashMap<Entity, T> {
         self.guarded.unsafe_borrow_mut()
     }
 
     pub fn remove(&mut self, e: &Entity) -> Option<T> {
         self.guarded.unsafe_borrow_mut().remove(e)
-    }
-
-    pub(crate) fn maintain_storage(&mut self, dead_entities: std::slice::Iter<'_, Entity>) {
-        for ent in dead_entities {
-            self.remove(ent);
-        }
     }
 }
 

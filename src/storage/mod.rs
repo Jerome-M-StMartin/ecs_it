@@ -16,8 +16,8 @@ use accessor::{Accessor, AccessorState};
 pub use storage_guard::{ImmutableStorageGuard, MutableStorageGuard};
 
 ///Used internally to provide abstraction over generically typed Storages
-///to allow storing of any kind of Storage<T> inside of World without having
-///to generically type the World struct too, which would break everything.
+///to allow storing any kind of Storage<T> inside the World without having
+///to generically type the World struct.
 //#[derive(Debug)]
 pub(crate) struct StorageBox {
     pub(crate) boxed: Arc<dyn Any + Send + Sync + 'static>,
@@ -119,6 +119,8 @@ where
     }
 
     ///Writer-Prioritized Concurrent Access:
+    ///
+    ///Called when a _StorageGuard is dropped, and elsewhere internally.
     ///
     ///These implementations should, assuming my logic is sound and correctly
     ///implemented, eliminate the possibility of starvation for writers. Readers,
