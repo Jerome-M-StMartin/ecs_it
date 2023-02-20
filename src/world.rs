@@ -268,51 +268,18 @@ impl World {
     ///Seems like this will require a macro, if there is a way to pass an
     ///arbitrary number of generic types to a macro...let's find out.
     ///
+    ///Fuck it, let's keep the verbose way where the user must do things
+    ///in the following order:
+    ///1.) acquire Warehouse lock
+    ///2.) in series, acquire every StorageGuard you need
+    ///3.) release Warehouse lock
+    ///
+    ///I think req_*_guard() fns should be moved to Warehouse API
+    ///
     ///... Through this use,
     ///you prevent deadlocks that may occur while two threads wait to acquire
     ///one or more StorageGuards currently held be the other, in the case
     ///where either thread needs multiple StorageGuards simultaneously.
-
-    //Accepts a tuple of types,
-    //Returns a tuple of StorageGuard<T>'s
-    //where T is each of the given types.
-    //e.g. warehouse_fetch!(TypeA, TypeB, TypeC) returns:
-    //(a: StorageGuard<TypeA>, b: StorageGuard<TypeB>, c: StorageGuard<TypeC>)
-    macro_rules! warehouse_fetch {
-        ($a_type:ty) => {
-            generically_typed_fn::<$a_type>()
-        };
-        ($final_tuple:expr) => {
-            $final_tuple
-        }
-        ($first_type:ty,  $($next_type:ty), +) => {{
-            let guard = generically_typed_fn::<$first_type>();
-            warehouse_fetch!((guard), $($next_type), +)
-        }}
-        ($old_tuple:expr, $($type_n:ty), +) => {{
-            let ($element_0:expr, $($element_n:expr,)* i,) = $old_tuple;
-            let guard = generically_typed_fn::<$type_n>();
-            ($old_tuple, $($type_n,)+)
-        }}
-    }
-    
-    //don't think I need this, it creates a new tuple internally anyway
-    //so no benefit it seems
-    //Accepts tuple of types on which you wish to impl a TuplePush trait.
-    macro_rules! impl_tuple_push {
-        (()) => {};
-        (($element_0:ident, $(, $element_n:ident)*)) => {
-            //Definition of TuplePush Trait
-            impl<$type_0, $($type_n,)* T> TuplePush<T> for ($type_0, $($type_n,)*) {
-                type OutputTuple = ($type_0, $($type_n,)* T,);
-
-                fn push(self, t: T) -> Self::OutputTuple {
-                    let ($type0, $($type_n,)*) = self;
-                    ($type_0, $($type_n,)* t,)
-                }
-            }
-        }
-    }
 
     /*pub fn access_warehouse(&self) -> MutexGuard<Warehouse> {
         //TODO: doctests
