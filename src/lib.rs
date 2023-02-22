@@ -288,6 +288,7 @@
 //!
 //!```
 
+mod component;
 mod entity;
 mod error;
 mod storage;
@@ -297,15 +298,13 @@ pub mod world;
 
 pub type Entity = usize;
 
-pub trait Component: 'static + Sized + Send + Sync {}
-
 #[cfg(test)]
 mod tests {
 
     //Must run 'cargo test -- --nocapture' to allow printing of time elapsed
 
+    use super::component::Component;
     use super::world::World;
-    use super::Component;
     use std::time::Instant;
 
     struct TestComponent {
@@ -329,9 +328,11 @@ mod tests {
         assert_eq!(entity1, 1);
         assert_eq!(entity2, 2);
 
+        /*
         for (i, ent) in w.entity_iter().enumerate() {
             println!("i: {}, ent: {}", i, ent);
         }
+        */
     }
 
     #[test]

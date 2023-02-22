@@ -8,10 +8,10 @@ use std::{
 };
 
 use super::{
+    component::Component,
     entity::Entities,
     storage::{ImmutableStorageGuard, MutableStorageGuard, Storage},
     warehouse::{StorageBox, Warehouse},
-    Component,
     Entity, //usize
 };
 
@@ -98,6 +98,7 @@ impl World {
         let mut warehouse_guard: MutexGuard<'_, Warehouse> =
             self.warehouse.lock().expect(WAREHOUSE_POISON);
 
+        /*
         if warehouse_guard.storages.contains_key(&type_id) {
             panic!("attempted to register the same component type twice");
         }
@@ -124,6 +125,7 @@ impl World {
         let mut maint_fns = warehouse_guard.maintenance_functions;
 
         maint_fns.push(Box::new(maintain_storage::<T>));
+        */
     }
 
     ///Adds a component of type T to the passed-in entity; replaces and returns
@@ -217,6 +219,7 @@ impl World {
     /// }
     ///```
     pub fn maintain_ecs(&self) {
+        /*
         let warehouse_guard = self.warehouse.lock().expect(MAINTENANCE_FN_POISON);
         let maint_fns = warehouse_guard.maintenance_functions;
 
@@ -232,6 +235,7 @@ impl World {
         /*for (entity, f) in zipped {
             f(&self, entity);
         }*/
+        */
     }
 
     ///Use to get thread-safe read-access to a single ECS Storage.
@@ -262,6 +266,7 @@ impl World {
         MutableStorageGuard::new(storage_arc)
     }
 
+    /*
     ///TODO: Change API on World to only have one way to get StorageGuards,
     ///something like: Warehouse<T0, T1, T2, ...>() -> (Storage<T0>, ...) {...}
     ///
@@ -281,7 +286,7 @@ impl World {
     ///one or more StorageGuards currently held be the other, in the case
     ///where either thread needs multiple StorageGuards simultaneously.
 
-    /*pub fn access_warehouse(&self) -> MutexGuard<Warehouse> {
+    pub fn access_warehouse(&self) -> MutexGuard<Warehouse> {
         //TODO: doctests
         let warehouse_guard = self.warehouse.lock().expect(WAREHOUSE_POISON);
 
@@ -289,6 +294,7 @@ impl World {
     }*/
 }
 
+/*
 #[derive(Debug)]
 pub struct ManyGuard<'a> {
     guarded: MutexGuard<'a, HashMap<TypeId, StorageBox>>,
@@ -322,4 +328,4 @@ impl<'a> ManyGuard<'a> {
     ) -> Option<MutableStorageGuard<T>> {
         world.req_write_guard_if(ent)
     }
-}
+}*/

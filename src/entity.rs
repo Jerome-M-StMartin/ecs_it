@@ -46,8 +46,8 @@ impl Entities {
             self.dead_entities.push(entity_to_rm);
             return true;
         }
-
-        false*/
+        */
+        false
     }
 
     fn get_next_id(&mut self) -> Entity {

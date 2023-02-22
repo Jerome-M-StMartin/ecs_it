@@ -1,16 +1,33 @@
 Goal: Change storages to Vecs from HashMaps.
 
 ToDo:
-//Do it the 1b way, only do the 1a way if 1b fails for some reaosn.
-1a.) InnerStorage type from (map, vec) to just vec.
-	Create single global HashMap<Entity, Index>.
-Why:
-If the intent is to be able to zip vecs together, than index == X needs to
-be the index of EntityX accross all storages, so they all need to be dependent
-on a single source-of-truth HashMap with Entities as Keys and Indices as
-Values.
+0.) Improve API for fetching many Storages (for use in Systems).
+	- Requirements:
+	- - Ability to request arbitary number of Storages.
+	- - Returns zipped iterator over all requestes Storages.
 
-1b.) Instead of 1a: (I like this a lot more.)
+ - Ways:
+	- - Macros: gone down this rabbit hole a bit. Allows for variable number
+	  of arguments but collecting them into an iterator at the end has been a
+	  challenge.
+ A way without macros, which I just had an idea for. Could I store a
+collection of req_*_access::<T>() calls where T is already defined, all
+in a hashmap? What would the keys be?
+
+I would also need a way to know Keys into this map without having a T. Perhaps
+I could impl a static method on the Component trait which returns the typeid
+of the Component??? Okay, this is done... so now I can say "Hey World give me
+the storage whose type has 'this' id."
+
+Okay so I could now write some fn which accepts a Vec<TypeId> and returns a
+zipped iterator over all of the Storages with those types. Nope, can't return
+an Iterator without knowing its Item type, which is unknown due to the
+variable number of requested storages. Instead, I just need to return a
+collection of StorageGuards.
+	
+
+1.) Implement functionality for initializing new entities and cleaning up dead
+	ones.
 Tightly couple Entity generation to Storages.
 e.g. When creating an Entity,
 First check if there is a dead Entity whose ID you could use. This Entity will
@@ -19,10 +36,8 @@ already have an available idx in all Storages, which will all be filled with
 Storage.length, then increase the size of all Storage Vecs by 1.
 Steps:
 	- Implement a Storages::length() -> &size method. It's important that this
-does not require acquiring the Storages Global Mutex. Instead, a mutex lock
-acquire should only occur when we add a new entity while there are no
-dead_entities available, and therefor must increase the length of all
-Storage vecs.
+	  does not require acquiring the Storages Global Mutex.
+
 	- Implement dead entity cleanup: I see three ways, lazy on a per-storage
 	  basis, lazy on a warehouse basis, or non-lazy/immediate on a warehouse
 	  basis.

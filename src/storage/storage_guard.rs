@@ -9,7 +9,7 @@
 
 use std::sync::Arc;
 
-use super::super::{Component, Entity};
+use super::super::{component::Component, Entity};
 use super::{InnerStorage, Storage};
 
 ///What you get when you ask the ECS for access to a Storage via req_read_access().
@@ -42,14 +42,23 @@ where
         None
     }*/
 
-    //pub fn iter(&self) -> impl Iterator<Item = &T> {
-    pub fn iter(&self) -> impl Iterator<Item = &Option<T>> {
+    //pub fn iter(&self) -> impl Iterator<Item = &Option<T>> {
+    pub fn iter(&self) -> std::slice::Iter<Option<T>> {
         self.guarded.unsafe_borrow().iter()
     }
 
     ///Favor using iter() or get() if at all possible.
     pub fn raw(&self) -> &InnerStorage<T> {
         self.guarded.unsafe_borrow()
+    }
+}
+
+impl<'a, T: Component> IntoIterator for &'a ImmutableStorageGuard<T> {
+    type Item = &'a Option<T>;
+    type IntoIter = std::slice::Iter<'a, Option<T>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
     }
 }
 
@@ -84,6 +93,7 @@ where
         let mut storage = self.guarded.unsafe_borrow_mut();
         //1.) Insert new ent/idx pair into map.
         //2.) Push component into Entity's associated slot in vec.
+        None
     }
 
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Option<T>> {
@@ -101,14 +111,15 @@ where
     ///nothing happens and this returns None.
     pub fn remove(&mut self, e: &Entity) -> Option<T> {
         let storage = self.guarded.unsafe_borrow_mut();
-        let map = //TODO
-
+        /*let map = //TODO
+         *
         //If this entity has a component of type T:
         if let Some(component_idx) = map.get(e) {
             let component: T = vec[*component_idx];
             let test = vec[*component_idx];
             return Some(component);
         }
+        */
 
         //Else:
         None

@@ -7,7 +7,7 @@
 
 use std::cell::UnsafeCell;
 
-use super::Component;
+use super::component::Component;
 use accessor::{Accessor, AccessorState};
 pub use storage_guard::{ImmutableStorageGuard, MutableStorageGuard};
 
