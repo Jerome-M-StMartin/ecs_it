@@ -7,6 +7,17 @@ ToDo:
 	- - Returns zipped iterator over all requestes Storages.
 
  - Ways:
+NEW WAY 3/2/23:
+Lots of boilerplate for me but it's worth it.
+First, implement many checkout<A, B, C, ..., A>, allowing any number of
+generic types from 1..26.
+Next, the innovative part: Each of these warehouse fn's returns a custom
+struct/type called SystemData, which is implicitly held for the duration of
+the system run time, and so holds all the requested storage guards over this
+duration. In addition, it implements funcitonality to get a zipped iter over
+all the guards it holds. Boom, fantastic. I think this solves my woes.
+
+Old:
 	- - Macros: gone down this rabbit hole a bit. Allows for variable number
 	  of arguments but collecting them into an iterator at the end has been a
 	  challenge.

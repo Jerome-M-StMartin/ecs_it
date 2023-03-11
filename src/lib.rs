@@ -183,12 +183,11 @@
 //!
 //! #How to implement a System
 //!```
-//! //TODO: Finish this doctest BEFORE writing System API; revise after.
 //! use core::fmt::Error;
 //! use std::any::Any;
 //! use ecs_it::*;
 //!
-//!//Define Components
+//! //Define Components
 //! struct Health {
 //!     value: usize,
 //! }
@@ -197,7 +196,7 @@
 //! struct Damage(usize);
 //! impl Component for Damage {}
 //!
-//!//Instantiate the ECS
+//! //Instantiate the ECS
 //! let world = world::World::new();
 //!
 //! //Register all components

@@ -38,6 +38,13 @@ impl World {
         }
     }
 
+    ///All compoent storages are held in the warehouse.
+    ///TODO: further docs & doctest
+    pub fn open_warehouse(&self) -> MutexGuard<Warehouse> {
+        let warehouse_guard = self.warehouse.lock().expect(WAREHOUSE_POISON);
+        warehouse_guard
+    }
+
     ///Inserts a "blank" Entity into the World. You need to call
     ///add_component() to allow this Entity to do/be anything of
     ///substance. Returns the entity ID, which is a usize, which
@@ -83,6 +90,7 @@ impl World {
     ///this is the fn to call. See: World::maintain_ecs()
     pub fn rm_entity(&self, e: Entity) {
         self.entities.lock().expect(ENTITIES_POISON).rm_entity(e);
+        todo!()
     }
 
     ///Component types must be registered with the ECS before use. This fn also
@@ -95,8 +103,8 @@ impl World {
     pub fn register_component<T: Component>(&self) {
         let type_id = TypeId::of::<T>();
 
-        let mut warehouse_guard: MutexGuard<'_, Warehouse> =
-            self.warehouse.lock().expect(WAREHOUSE_POISON);
+        let warehouse = self.open_warehouse();
+        todo!()
 
         /*
         if warehouse_guard.storages.contains_key(&type_id) {
@@ -131,18 +139,13 @@ impl World {
     ///Adds a component of type T to the passed-in entity; replaces and returns
     ///the T that was already here, if any.
     pub fn add_component<T: Component>(&self, ent: Entity, comp: T) -> Option<T> {
-        let mut storage_guard = self.req_write_guard::<T>(); //This may block.
-
-        //'Attatch' component to ent
-        let old_component = storage_guard.insert(ent, comp);
-        old_component
+        todo!()
     }
 
     ///Removes the component of the type T from this entity and returns it.
     ///If this component type didn't exist on this entity, None is returned.
     pub fn rm_component<T: Component>(&self, ent: &Entity) -> Option<T> {
-        let mut storage_guard = self.req_write_guard::<T>(); //This may block.
-        storage_guard.remove(ent)
+        todo!()
     }
 
     ///Must be called every once and a while, depending on how often Entities
@@ -156,7 +159,7 @@ impl World {
     ///write some logic to call this once every few seconds or so and that
     ///would probably be fine.
     ///
-    ///This probably be called at the end of a game tick(), or maybe at the
+    ///This should be called at the end of a game tick(), or maybe at the
     ///start of a game tick(). Anywhere but right in the middle, because
     ///you'll operate on garbage data in your Systems. This won't be a
     ///"problem" per-se, but it will result in wasted CPU cycles.
@@ -219,6 +222,7 @@ impl World {
     /// }
     ///```
     pub fn maintain_ecs(&self) {
+        todo!()
         /*
         let warehouse_guard = self.warehouse.lock().expect(MAINTENANCE_FN_POISON);
         let maint_fns = warehouse_guard.maintenance_functions;
@@ -238,6 +242,7 @@ impl World {
         */
     }
 
+    /*
     ///Use to get thread-safe read-access to a single ECS Storage.
     ///## Panics
     ///Panics if you call on an unregistered Component type, T.
@@ -265,6 +270,7 @@ impl World {
         //Instantiate and return a guard holding the Arc
         MutableStorageGuard::new(storage_arc)
     }
+    */
 
     /*
     ///TODO: Change API on World to only have one way to get StorageGuards,
@@ -279,7 +285,6 @@ impl World {
     ///2.) in series, acquire every StorageGuard you need
     ///3.) release Warehouse lock
     ///
-    ///I think req_*_guard() fns should be moved to Warehouse API
     ///
     ///... Through this use,
     ///you prevent deadlocks that may occur while two threads wait to acquire

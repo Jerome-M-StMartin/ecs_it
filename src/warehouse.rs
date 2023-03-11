@@ -13,14 +13,13 @@ use std::{
 
 use super::{
     component::Component,
-    error::ECSError,
     storage::{ImmutableStorageGuard, MutableStorageGuard, Storage},
     world::World,
     Entity,
 };
 
-///Container for all Storages in the ECS World, lives in an Arc.
-pub(crate) struct Warehouse {
+///Container for all Storages in the ECS World; lives in an Arc.
+pub struct Warehouse {
     //Invariants:
     //1.) each storage has the same length (underlying vec I mean)
     //2.) capacity == the length of the storages
@@ -38,38 +37,26 @@ impl Warehouse {
         }
     }
 
-    /*
-    pub(crate) fn get(&self, type_id: &TypeId) -> Option<&StorageBox> {
-        self.storages.get(type_id)
-    }*/
-
-    pub(crate) fn checkout_storage<T: Component>(&self) -> Result<Arc<Storage<T>>, ECSError> {
+    pub fn checkout_storage<T: Component>(&self) -> ImmutableStorageGuard<T> {
         let type_id = TypeId::of::<T>();
 
         if let Some(storage_box) = self.storages.get(&type_id) {
             let arc = storage_box.clone_storage_arc();
-            return Ok(arc);
+            return ImmutableStorageGuard::new(arc);
+        } else {
+            panic!("Failed to find Storage<T>. Did you forget to register a Component?");
         }
-
-        Err(ECSError(
-            "Failed to find Storage<T>. Did you forget to register a Component?",
-        ))
     }
 
-    //Proof of Concept, lots of boilerplate but this way I know the types
-    // Next step: impl some logic to turn a tuple of guards into a zipped iterator
-    pub(crate) fn checkout<A, B>(self) -> (ImmutableStorageGuard<A>, ImmutableStorageGuard<B>)
-    where
-        A: Component,
-        B: Component,
-    {
-        let arc_a = self.checkout_storage::<A>();
-        let guard_a = ImmutableStorageGuard::new(arc_a.unwrap());
+    pub fn checkout_storage_mut<T: Component>(&self) -> MutableStorageGuard<T> {
+        let type_id = TypeId::of::<T>();
 
-        let arc_b = self.checkout_storage::<B>();
-        let guard_b = ImmutableStorageGuard::new(arc_b.unwrap());
-
-        (guard_a, guard_b)
+        if let Some(storage_box) = self.storages.get(&type_id) {
+            let arc = storage_box.clone_storage_arc();
+            return MutableStorageGuard::new(arc);
+        } else {
+            panic!("Failed to find Storage<T>. Did you forget to register a Component?");
+        }
     }
 }
 
