@@ -7,7 +7,13 @@ ToDo:
 	- - Returns zipped iterator over all requestes Storages.
 
  - Ways:
-NEW WAY 3/2/23:
+New 3/11/23:
+Just use the verbose method. Get the warehouse/global lock, then request all
+storages needed, then release the global lock. Done. Easy. Hard part is then
+creating a joined iterator over all those storages. Specs crate probably has a
+great way of doing this.
+
+Old: 3/2/23:
 Lots of boilerplate for me but it's worth it.
 First, implement many checkout<A, B, C, ..., A>, allowing any number of
 generic types from 1..26.
@@ -17,7 +23,7 @@ the system run time, and so holds all the requested storage guards over this
 duration. In addition, it implements funcitonality to get a zipped iter over
 all the guards it holds. Boom, fantastic. I think this solves my woes.
 
-Old:
+Older:
 	- - Macros: gone down this rabbit hole a bit. Allows for variable number
 	  of arguments but collecting them into an iterator at the end has been a
 	  challenge.
@@ -39,6 +45,18 @@ collection of StorageGuards.
 
 1.) Implement functionality for initializing new entities and cleaning up dead
 	ones.
+
+3/12/2023 New Way Maybe?
+Below Warehouse/GarbageCollector way seems promising, if and only if I can
+iterate over all storages and know the T's to get MutStorageGuards. idk
+anyway...
+Per-storage lazy dead-entity cleanup:
+ - Use MaintenanceTask { logic: dyn Fn() } trait objects that get stored in a
+   queue for lazy execution. Removes need for generation since all maintenance
+   logic will execute in given order, causing the storage to always be
+   up-to-date every time if finishes executing the maint. queue, which should
+   be done EVERY time it is accessed, before any other use of it.
+
 Tightly couple Entity generation to Storages.
 e.g. When creating an Entity,
 First check if there is a dead Entity whose ID you could use. This Entity will

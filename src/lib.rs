@@ -214,73 +214,50 @@
 //!     fn run(world: &world::World) -> Result<(), Error> {
 //!
 //!         //1.) Acquire global storage lock
-//!         let global_guard = world.req_many_guards();
+//!         let warehouse: MutexGuard<Warehouse> = world.open_warehouse();
 //!
 //!         //2.) Acquire locks on the storages needed for this system
-//!         let (mut_health_storage, mut_damage_storage) = (
-//!             guards.req_write_guard::<Health>(&world),
-//!             guards.req_write_guard::<Damage>(&world),
-//!             guards.req_read_guard::<Armor>(&world),
-//!             guards.req_read_guard::<Movement>(&world),
+//!         let (mut_health_storage, 
+//!              mut_damage_storage,
+//!              armor_storage,
+//!              movement_storage) = (
+//!             guards.checkout_storage_mut::<Health>(&warehouse),
+//!             guards.checkout_storage_mut::<Damage>(&warehouse),
+//!             guards.checkout_storage::<Armor>(&warehouse),
+//!             guards.checkout_storage::<Movement>(&warehouse),
 //!         );
 //!
-//!         global_guard.drop(); //Release global storage lock.
+//!         warehouse.drop(); //Release global storage lock.
 //!
 //!         //3.) Zip the storages needed to execute the the logic of this
 //!         //    System, then iterate over them knowing that at each step
 //!         //    of the iterator, each zipped Component is attached the
 //!         //    the same single specific Entity.
-//!         let mut health_components_iter = mut_health_storage.iter_mut();
-//!         let mut damage_components_iter = mut_health_storage.iter_mut();
-//!         let armor_components_iter = armor_storage.iter();
-//!         let movement_component_iter = movement_storage.iter();
-//!         //would like to make a custom zip_storages!(...) macro,
-//!         //but for now, I'll use the itertools crate.
-//!         let zipped = itertools::zip!(health_components_iter,
-//!                                      damage_components_iter,
-//!                                      armor_components_iter,
-//!                                      movement_storage.iter);
+//!         let zipped = itertools::zip!(
+//!             mut_health_storage, 
+//!             mut_damage_storage,
+//!             armor_storage,
+//!             movement_storage
+//!         );
 //!
-//!         //Oh, I also need a way to express "maybe has component X",
-//!         //So we can still match on other things. Wait... this is
-//!         //built in. Every entity will always be looped over in EVERY
-//!         //system, because even when every one of the zipped storages
-//!         //yeilds a None element for any given Entity, that element is
-//!         //a Some(None) to the iterator, so it will not break out of the
-//!         //iteration loop until the end of the storage vec.
+//!         //4.) Iterate over all system components in lockstep.
+//!         for (health, damage, armor) in zipped.iter() {
 //!
-//!         for (health, damage, armor, movement) in zipped.iter() {
+//!             //In this case, I only want to operate on entities which have
+//!             //both a Health and Damage component.
+//!             if health == None || damage == None { continue; }
+//!
+//!             let mut dmg = damage.unwrap().total;
 //!             
+//!             //Armor, on the other hand, is optional for this system.
+//!             if armor.is_some() {
+//!                 dmg -= armor.unwrap().total;
+//!             }
+//!             
+//!             //The point of this system is to apply values from Damage components
+//!             //to Health components. So now we do that:
+//!             health.mutate(dmg * -1);
 //!         }
-//!
-//!         /*
-//!         //X.) Get entities <-nope, not the ECS way
-//!         let entities = world.entity_iter();
-//!
-//!         X.) Loop through entities; perform system logic on storage data
-//!         for entity in entities {
-//!             //TODO:
-//!             // API needs a way to respond Yes, Maybe, No to
-//!             // the question: "does this Ent have comonent X?"
-//!
-//!             Wait, no... this is wrong.
-//!             The point of an ECS is to loop through the components...
-//!             Uh oh. I vaguely remember being okay with this,
-//!             but right now I am wary.
-//!
-//!             The ECS Way: Loop through Components, not Entities.
-//!             The user-facing functionality of the API is intended to
-//!             be a zip of all Storages required by any given System,
-//!             with the idea that index n of each storage contains
-//!             an Option<Component> for a single specific entity.
-//!             With hashmaps, the way to get an iterator is .values(),
-//!             which returns an interator *in arbitrary order*, this
-//!             cannot work. Therefor, Storages must be Vecs.
-//!
-//!             Confirmed that Vec.iter() preserves order.
-//!             */
-//!         }
-//!         
 //!         //5.) TheEnd
 //!     }
 //! }

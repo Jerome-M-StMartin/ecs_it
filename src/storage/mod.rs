@@ -8,8 +8,8 @@
 use std::cell::UnsafeCell;
 
 use super::component::Component;
-use accessor::{Accessor, AccessorState};
-pub use storage_guard::{ImmutableStorageGuard, MutableStorageGuard};
+use self::accessor::{Accessor, AccessorState};
+pub use self::storage_guard::{ImmutableStorageGuard, MutableStorageGuard};
 
 mod accessor;
 mod storage_guard;

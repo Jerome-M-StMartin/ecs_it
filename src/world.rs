@@ -39,7 +39,7 @@ impl World {
     }
 
     ///All compoent storages are held in the warehouse.
-    ///TODO: further docs & doctest
+    ///TODO: further docs & focused doctest
     pub fn open_warehouse(&self) -> MutexGuard<Warehouse> {
         let warehouse_guard = self.warehouse.lock().expect(WAREHOUSE_POISON);
         warehouse_guard
@@ -50,41 +50,8 @@ impl World {
     ///substance. Returns the entity ID, which is a usize, which
     ///is type-aliased as "Entity" in this library.
     pub fn create_entity(&self) -> Entity {
-        //TODO
-        /*let id = self
-            .entities
-            .lock()
-            .expect("entities mtx found poisoned in World::init_entity()")
-            .create_entity();
-
-        id*/
-        0
-    }
-
-    /* Do I need this? Not the ECS way to loop over Entities.
-    /// Clones all existing Entities into an unsorted Vec, then returns an
-    /// iterator over that Vec; does not consume the underlying data structure.
-    ///
-    /// Reminder: an Entity is just a usize - nothing more.
-    ///
-    ///# Example
-    ///```
-    /// use ecs_it::world::World;
-    ///
-    /// let world = World::new();
-    ///
-    /// for _ in 0..5 {
-    ///     world.create_entity();
-    /// }
-    ///
-    /// for (i, ent) in world.entity_iter().enumerate() {
-    ///     println!("i: {}, entity: {}", i, ent);
-    /// }
-    ///```
-    pub fn entity_iter<'a>(&self) -> impl Iterator<Item = Entity> {
-        let entities_guard: MutexGuard<Entities> = self.entities.lock().expect(ENTITIES_POISON);
-        entities_guard.vec().into_iter()
-    }*/
+        todo!()
+    }   
 
     ///When entities "die" or otherwise need to be removed from the game world,
     ///this is the fn to call. See: World::maintain_ecs()

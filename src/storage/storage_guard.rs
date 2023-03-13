@@ -29,20 +29,6 @@ where
         ImmutableStorageGuard { guarded }
     }
 
-    /*Do I want this? Single component lookup is not the ECS way.
-     * Commenting out for now to see if I can force use of .iter()
-    pub fn get(&self, e: Entity) -> Option<&T> {
-        let (map, vec) = self.guarded.unsafe_borrow();
-
-        if let Some(component_idx) = map.get(&e) {
-            let component: &T = &vec[*component_idx];
-            return Some(component);
-        };
-
-        None
-    }*/
-
-    //pub fn iter(&self) -> impl Iterator<Item = &Option<T>> {
     pub fn iter(&self) -> std::slice::Iter<Option<T>> {
         self.guarded.unsafe_borrow().iter()
     }
@@ -59,6 +45,15 @@ impl<'a, T: Component> IntoIterator for &'a ImmutableStorageGuard<T> {
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
+    }
+}
+
+impl<T> Drop for ImmutableStorageGuard<T>
+where
+    T: Component,
+{
+    fn drop(&mut self) {
+        self.guarded.drop_read_access();
     }
 }
 
@@ -79,29 +74,23 @@ where
         MutableStorageGuard { guarded }
     }
 
-    /*Do I want this? Single component lookup is not the ECS way.
-     * Commenting out for now to see if I can force use of .iter()
-    pub fn get_mut(&self, e: &Entity) -> Option<&mut T> {
-        self.guarded.unsafe_borrow_mut().get_mut(e)
-    }*/
-
-    ///Associates Component c with Entity e. If e already had a c, then
-    ///that old c is returned in an option.
+    ///Associates Component c with Entity e.
+    ///If e already had a c, that old c is returned in an option.
     ///Assumptions:
     ///Entity e already exists and Component c is registered in the ecs world.
     pub fn insert(&mut self, e: Entity, c: T) -> Option<T> {
-        let mut storage = self.guarded.unsafe_borrow_mut();
-        //1.) Insert new ent/idx pair into map.
-        //2.) Push component into Entity's associated slot in vec.
-        None
+        let storage = self.guarded.unsafe_borrow_mut();
+        let old_component: Option<T> = storage[e].replace(c); //In superposition of Some/None.
+        old_component //Regardless of if it's Some/None, it will be correct to return it.
     }
 
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Option<T>> {
+    ///TODO
+    pub fn iter_mut(&mut self) -> std::slice::IterMut<Option<T>> {
         self.guarded.unsafe_borrow_mut().iter_mut()
     }
 
     ///Favor using other fns in this API over this if at all possible.
-    pub fn raw_mut(&self) -> &InnerStorage<T> {
+    pub fn raw_mut(&mut self) -> &InnerStorage<T> {
         self.guarded.unsafe_borrow_mut()
     }
 
@@ -109,29 +98,27 @@ where
     ///removing it from the Storage.
     ///If there was no such T,
     ///nothing happens and this returns None.
-    pub fn remove(&mut self, e: &Entity) -> Option<T> {
+    pub fn remove(&mut self, e: Entity) -> Option<T> {
         let storage = self.guarded.unsafe_borrow_mut();
-        /*let map = //TODO
-         *
-        //If this entity has a component of type T:
-        if let Some(component_idx) = map.get(e) {
-            let component: T = vec[*component_idx];
-            let test = vec[*component_idx];
-            return Some(component);
-        }
-        */
-
-        //Else:
-        None
+        let component: Option<T> = storage[e].take();
+        component
+    }
+    
+    ///Used internally to lengthen the storage vec to make room for a new entity.
+    pub(crate) fn register_new_entities(&mut self, num_new_entities: usize) {
+       let storage = self.guarded.unsafe_borrow_mut();
+       for _ in 0..num_new_entities {
+           storage.push(None);
+       }
     }
 }
 
-impl<T> Drop for ImmutableStorageGuard<T>
-where
-    T: Component,
-{
-    fn drop(&mut self) {
-        self.guarded.drop_read_access();
+impl<'a, T: Component> IntoIterator for &'a mut MutableStorageGuard<T> {
+    type Item = &'a mut Option<T>;
+    type IntoIter = std::slice::IterMut<'a, Option<T>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter_mut()
     }
 }
 
